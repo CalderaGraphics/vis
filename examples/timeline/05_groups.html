@@ -60,7 +60,9 @@
   // create visualization
   var container = document.getElementById('visualization');
   var options = {
-    groupOrder: 'content'  // groupOrder can be a property name or a sorting function
+    groupOrder: 'content',  // groupOrder can be a property name or a sorting function
+    zoomable: false,
+    height: '150px'
   };
 
   var timeline = new vis.Timeline(container);
