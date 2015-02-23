@@ -5,7 +5,7 @@
  * A dynamic, browser-based visualization library.
  *
  * @version 3.9.1
- * @date    2015-02-18
+ * @date    2015-02-23
  *
  * @license
  * Copyright (C) 2011-2014 Almende B.V, http://almende.com
@@ -86,9 +86,9 @@ return /******/ (function(modules) { // webpackBootstrap
   exports.DOMutil = __webpack_require__(2);
 
   // data
-  exports.DataSet = __webpack_require__(3);
-  exports.DataView = __webpack_require__(4);
-  exports.Queue = __webpack_require__(5);
+  exports.DataSet = __webpack_require__(5);
+  exports.DataView = __webpack_require__(3);
+  exports.Queue = __webpack_require__(4);
 
   // Graph3d
   exports.Graph3d = __webpack_require__(6);
@@ -140,10 +140,10 @@ return /******/ (function(modules) { // webpackBootstrap
     Edge: __webpack_require__(37),
     Groups: __webpack_require__(38),
     Images: __webpack_require__(39),
-    Node: __webpack_require__(40),
-    Popup: __webpack_require__(41),
-    dotparser: __webpack_require__(42),
-    gephiParser: __webpack_require__(43)
+    Node: __webpack_require__(45),
+    Popup: __webpack_require__(40),
+    dotparser: __webpack_require__(41),
+    gephiParser: __webpack_require__(42)
   };
 
   // Deprecated since v3.0.0
@@ -152,8 +152,8 @@ return /******/ (function(modules) { // webpackBootstrap
   };
 
   // bundled external libraries
-  exports.moment = __webpack_require__(44);
-  exports.hammer = __webpack_require__(45);
+  exports.moment = __webpack_require__(43);
+  exports.hammer = __webpack_require__(44);
 
 
 /***/ },
@@ -164,7 +164,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
   // first check if moment.js is already loaded in the browser window, if so,
   // use this instance. Else, load via commonjs.
-  var moment = __webpack_require__(44);
+  var moment = __webpack_require__(43);
 
   /**
    * Test whether given object is a number
@@ -1580,7 +1580,519 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Queue = __webpack_require__(5);
+  var DataSet = __webpack_require__(5);
+
+  /**
+   * DataView
+   *
+   * a dataview offers a filtered view on a dataset or an other dataview.
+   *
+   * @param {DataSet | DataView} data
+   * @param {Object} [options]   Available options: see method get
+   *
+   * @constructor DataView
+   */
+  function DataView (data, options) {
+    this._data = null;
+    this._ids = {}; // ids of the items currently in memory (just contains a boolean true)
+    this._options = options || {};
+    this._fieldId = 'id'; // name of the field containing id
+    this._subscribers = {}; // event subscribers
+
+    var me = this;
+    this.listener = function () {
+      me._onEvent.apply(me, arguments);
+    };
+
+    this.setData(data);
+  }
+
+  // TODO: implement a function .config() to dynamically update things like configured filter
+  // and trigger changes accordingly
+
+  /**
+   * Set a data source for the view
+   * @param {DataSet | DataView} data
+   */
+  DataView.prototype.setData = function (data) {
+    var ids, i, len;
+
+    if (this._data) {
+      // unsubscribe from current dataset
+      if (this._data.unsubscribe) {
+        this._data.unsubscribe('*', this.listener);
+      }
+
+      // trigger a remove of all items in memory
+      ids = [];
+      for (var id in this._ids) {
+        if (this._ids.hasOwnProperty(id)) {
+          ids.push(id);
+        }
+      }
+      this._ids = {};
+      this._trigger('remove', {items: ids});
+    }
+
+    this._data = data;
+
+    if (this._data) {
+      // update fieldId
+      this._fieldId = this._options.fieldId ||
+          (this._data && this._data.options && this._data.options.fieldId) ||
+          'id';
+
+      // trigger an add of all added items
+      ids = this._data.getIds({filter: this._options && this._options.filter});
+      for (i = 0, len = ids.length; i < len; i++) {
+        id = ids[i];
+        this._ids[id] = true;
+      }
+      this._trigger('add', {items: ids});
+
+      // subscribe to new dataset
+      if (this._data.on) {
+        this._data.on('*', this.listener);
+      }
+    }
+  };
+
+  /**
+   * Get data from the data view
+   *
+   * Usage:
+   *
+   *     get()
+   *     get(options: Object)
+   *     get(options: Object, data: Array | DataTable)
+   *
+   *     get(id: Number)
+   *     get(id: Number, options: Object)
+   *     get(id: Number, options: Object, data: Array | DataTable)
+   *
+   *     get(ids: Number[])
+   *     get(ids: Number[], options: Object)
+   *     get(ids: Number[], options: Object, data: Array | DataTable)
+   *
+   * Where:
+   *
+   * {Number | String} id         The id of an item
+   * {Number[] | String{}} ids    An array with ids of items
+   * {Object} options             An Object with options. Available options:
+   *                              {String} [type] Type of data to be returned. Can
+   *                                              be 'DataTable' or 'Array' (default)
+   *                              {Object.<String, String>} [convert]
+   *                              {String[]} [fields] field names to be returned
+   *                              {function} [filter] filter items
+   *                              {String | function} [order] Order the items by
+   *                                  a field name or custom sort function.
+   * {Array | DataTable} [data]   If provided, items will be appended to this
+   *                              array or table. Required in case of Google
+   *                              DataTable.
+   * @param args
+   */
+  DataView.prototype.get = function (args) {
+    var me = this;
+
+    // parse the arguments
+    var ids, options, data;
+    var firstType = util.getType(arguments[0]);
+    if (firstType == 'String' || firstType == 'Number' || firstType == 'Array') {
+      // get(id(s) [, options] [, data])
+      ids = arguments[0];  // can be a single id or an array with ids
+      options = arguments[1];
+      data = arguments[2];
+    }
+    else {
+      // get([, options] [, data])
+      options = arguments[0];
+      data = arguments[1];
+    }
+
+    // extend the options with the default options and provided options
+    var viewOptions = util.extend({}, this._options, options);
+
+    // create a combined filter method when needed
+    if (this._options.filter && options && options.filter) {
+      viewOptions.filter = function (item) {
+        return me._options.filter(item) && options.filter(item);
+      }
+    }
+
+    // build up the call to the linked data set
+    var getArguments = [];
+    if (ids != undefined) {
+      getArguments.push(ids);
+    }
+    getArguments.push(viewOptions);
+    getArguments.push(data);
+
+    return this._data && this._data.get.apply(this._data, getArguments);
+  };
+
+  /**
+   * Get ids of all items or from a filtered set of items.
+   * @param {Object} [options]    An Object with options. Available options:
+   *                              {function} [filter] filter items
+   *                              {String | function} [order] Order the items by
+   *                                  a field name or custom sort function.
+   * @return {Array} ids
+   */
+  DataView.prototype.getIds = function (options) {
+    var ids;
+
+    if (this._data) {
+      var defaultFilter = this._options.filter;
+      var filter;
+
+      if (options && options.filter) {
+        if (defaultFilter) {
+          filter = function (item) {
+            return defaultFilter(item) && options.filter(item);
+          }
+        }
+        else {
+          filter = options.filter;
+        }
+      }
+      else {
+        filter = defaultFilter;
+      }
+
+      ids = this._data.getIds({
+        filter: filter,
+        order: options && options.order
+      });
+    }
+    else {
+      ids = [];
+    }
+
+    return ids;
+  };
+
+  /**
+   * Get the DataSet to which this DataView is connected. In case there is a chain
+   * of multiple DataViews, the root DataSet of this chain is returned.
+   * @return {DataSet} dataSet
+   */
+  DataView.prototype.getDataSet = function () {
+    var dataSet = this;
+    while (dataSet instanceof DataView) {
+      dataSet = dataSet._data;
+    }
+    return dataSet || null;
+  };
+
+  /**
+   * Event listener. Will propagate all events from the connected data set to
+   * the subscribers of the DataView, but will filter the items and only trigger
+   * when there are changes in the filtered data set.
+   * @param {String} event
+   * @param {Object | null} params
+   * @param {String} senderId
+   * @private
+   */
+  DataView.prototype._onEvent = function (event, params, senderId) {
+    var i, len, id, item,
+        ids = params && params.items,
+        data = this._data,
+        added = [],
+        updated = [],
+        removed = [];
+
+    if (ids && data) {
+      switch (event) {
+        case 'add':
+          // filter the ids of the added items
+          for (i = 0, len = ids.length; i < len; i++) {
+            id = ids[i];
+            item = this.get(id);
+            if (item) {
+              this._ids[id] = true;
+              added.push(id);
+            }
+          }
+
+          break;
+
+        case 'update':
+          // determine the event from the views viewpoint: an updated
+          // item can be added, updated, or removed from this view.
+          for (i = 0, len = ids.length; i < len; i++) {
+            id = ids[i];
+            item = this.get(id);
+
+            if (item) {
+              if (this._ids[id]) {
+                updated.push(id);
+              }
+              else {
+                this._ids[id] = true;
+                added.push(id);
+              }
+            }
+            else {
+              if (this._ids[id]) {
+                delete this._ids[id];
+                removed.push(id);
+              }
+              else {
+                // nothing interesting for me :-(
+              }
+            }
+          }
+
+          break;
+
+        case 'remove':
+          // filter the ids of the removed items
+          for (i = 0, len = ids.length; i < len; i++) {
+            id = ids[i];
+            if (this._ids[id]) {
+              delete this._ids[id];
+              removed.push(id);
+            }
+          }
+
+          break;
+      }
+
+      if (added.length) {
+        this._trigger('add', {items: added}, senderId);
+      }
+      if (updated.length) {
+        this._trigger('update', {items: updated}, senderId);
+      }
+      if (removed.length) {
+        this._trigger('remove', {items: removed}, senderId);
+      }
+    }
+  };
+
+  // copy subscription functionality from DataSet
+  DataView.prototype.on = DataSet.prototype.on;
+  DataView.prototype.off = DataSet.prototype.off;
+  DataView.prototype._trigger = DataSet.prototype._trigger;
+
+  // TODO: make these functions deprecated (replaced with `on` and `off` since version 0.5)
+  DataView.prototype.subscribe = DataView.prototype.on;
+  DataView.prototype.unsubscribe = DataView.prototype.off;
+
+  module.exports = DataView;
+
+/***/ },
+/* 4 */
+/***/ function(module, exports, __webpack_require__) {
+
+  /**
+   * A queue
+   * @param {Object} options
+   *            Available options:
+   *            - delay: number    When provided, the queue will be flushed
+   *                               automatically after an inactivity of this delay
+   *                               in milliseconds.
+   *                               Default value is null.
+   *            - max: number      When the queue exceeds the given maximum number
+   *                               of entries, the queue is flushed automatically.
+   *                               Default value of max is Infinity.
+   * @constructor
+   */
+  function Queue(options) {
+    // options
+    this.delay = null;
+    this.max = Infinity;
+
+    // properties
+    this._queue = [];
+    this._timeout = null;
+    this._extended = null;
+
+    this.setOptions(options);
+  }
+
+  /**
+   * Update the configuration of the queue
+   * @param {Object} options
+   *            Available options:
+   *            - delay: number    When provided, the queue will be flushed
+   *                               automatically after an inactivity of this delay
+   *                               in milliseconds.
+   *                               Default value is null.
+   *            - max: number      When the queue exceeds the given maximum number
+   *                               of entries, the queue is flushed automatically.
+   *                               Default value of max is Infinity.
+   * @param options
+   */
+  Queue.prototype.setOptions = function (options) {
+    if (options && typeof options.delay !== 'undefined') {
+      this.delay = options.delay;
+    }
+    if (options && typeof options.max !== 'undefined') {
+      this.max = options.max;
+    }
+
+    this._flushIfNeeded();
+  };
+
+  /**
+   * Extend an object with queuing functionality.
+   * The object will be extended with a function flush, and the methods provided
+   * in options.replace will be replaced with queued ones.
+   * @param {Object} object
+   * @param {Object} options
+   *            Available options:
+   *            - replace: Array.<string>
+   *                               A list with method names of the methods
+   *                               on the object to be replaced with queued ones.
+   *            - delay: number    When provided, the queue will be flushed
+   *                               automatically after an inactivity of this delay
+   *                               in milliseconds.
+   *                               Default value is null.
+   *            - max: number      When the queue exceeds the given maximum number
+   *                               of entries, the queue is flushed automatically.
+   *                               Default value of max is Infinity.
+   * @return {Queue} Returns the created queue
+   */
+  Queue.extend = function (object, options) {
+    var queue = new Queue(options);
+
+    if (object.flush !== undefined) {
+      throw new Error('Target object already has a property flush');
+    }
+    object.flush = function () {
+      queue.flush();
+    };
+
+    var methods = [{
+      name: 'flush',
+      original: undefined
+    }];
+
+    if (options && options.replace) {
+      for (var i = 0; i < options.replace.length; i++) {
+        var name = options.replace[i];
+        methods.push({
+          name: name,
+          original: object[name]
+        });
+        queue.replace(object, name);
+      }
+    }
+
+    queue._extended = {
+      object: object,
+      methods: methods
+    };
+
+    return queue;
+  };
+
+  /**
+   * Destroy the queue. The queue will first flush all queued actions, and in
+   * case it has extended an object, will restore the original object.
+   */
+  Queue.prototype.destroy = function () {
+    this.flush();
+
+    if (this._extended) {
+      var object = this._extended.object;
+      var methods = this._extended.methods;
+      for (var i = 0; i < methods.length; i++) {
+        var method = methods[i];
+        if (method.original) {
+          object[method.name] = method.original;
+        }
+        else {
+          delete object[method.name];
+        }
+      }
+      this._extended = null;
+    }
+  };
+
+  /**
+   * Replace a method on an object with a queued version
+   * @param {Object} object   Object having the method
+   * @param {string} method   The method name
+   */
+  Queue.prototype.replace = function(object, method) {
+    var me = this;
+    var original = object[method];
+    if (!original) {
+      throw new Error('Method ' + method + ' undefined');
+    }
+
+    object[method] = function () {
+      // create an Array with the arguments
+      var args = [];
+      for (var i = 0; i < arguments.length; i++) {
+        args[i] = arguments[i];
+      }
+
+      // add this call to the queue
+      me.queue({
+        args: args,
+        fn: original,
+        context: this
+      });
+    };
+  };
+
+  /**
+   * Queue a call
+   * @param {function | {fn: function, args: Array} | {fn: function, args: Array, context: Object}} entry
+   */
+  Queue.prototype.queue = function(entry) {
+    if (typeof entry === 'function') {
+      this._queue.push({fn: entry});
+    }
+    else {
+      this._queue.push(entry);
+    }
+
+    this._flushIfNeeded();
+  };
+
+  /**
+   * Check whether the queue needs to be flushed
+   * @private
+   */
+  Queue.prototype._flushIfNeeded = function () {
+    // flush when the maximum is exceeded.
+    if (this._queue.length > this.max) {
+      this.flush();
+    }
+
+    // flush after a period of inactivity when a delay is configured
+    clearTimeout(this._timeout);
+    if (this.queue.length > 0 && typeof this.delay === 'number') {
+      var me = this;
+      this._timeout = setTimeout(function () {
+        me.flush();
+      }, this.delay);
+    }
+  };
+
+  /**
+   * Flush all queued calls
+   */
+  Queue.prototype.flush = function () {
+    while (this._queue.length > 0) {
+      var entry = this._queue.shift();
+      entry.fn.apply(entry.context || entry.fn, entry.args || []);
+    }
+  };
+
+  module.exports = Queue;
+
+
+/***/ },
+/* 5 */
+/***/ function(module, exports, __webpack_require__) {
+
+  var util = __webpack_require__(1);
+  var Queue = __webpack_require__(4);
 
   /**
    * DataSet
@@ -2571,524 +3083,12 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 4 */
-/***/ function(module, exports, __webpack_require__) {
-
-  var util = __webpack_require__(1);
-  var DataSet = __webpack_require__(3);
-
-  /**
-   * DataView
-   *
-   * a dataview offers a filtered view on a dataset or an other dataview.
-   *
-   * @param {DataSet | DataView} data
-   * @param {Object} [options]   Available options: see method get
-   *
-   * @constructor DataView
-   */
-  function DataView (data, options) {
-    this._data = null;
-    this._ids = {}; // ids of the items currently in memory (just contains a boolean true)
-    this._options = options || {};
-    this._fieldId = 'id'; // name of the field containing id
-    this._subscribers = {}; // event subscribers
-
-    var me = this;
-    this.listener = function () {
-      me._onEvent.apply(me, arguments);
-    };
-
-    this.setData(data);
-  }
-
-  // TODO: implement a function .config() to dynamically update things like configured filter
-  // and trigger changes accordingly
-
-  /**
-   * Set a data source for the view
-   * @param {DataSet | DataView} data
-   */
-  DataView.prototype.setData = function (data) {
-    var ids, i, len;
-
-    if (this._data) {
-      // unsubscribe from current dataset
-      if (this._data.unsubscribe) {
-        this._data.unsubscribe('*', this.listener);
-      }
-
-      // trigger a remove of all items in memory
-      ids = [];
-      for (var id in this._ids) {
-        if (this._ids.hasOwnProperty(id)) {
-          ids.push(id);
-        }
-      }
-      this._ids = {};
-      this._trigger('remove', {items: ids});
-    }
-
-    this._data = data;
-
-    if (this._data) {
-      // update fieldId
-      this._fieldId = this._options.fieldId ||
-          (this._data && this._data.options && this._data.options.fieldId) ||
-          'id';
-
-      // trigger an add of all added items
-      ids = this._data.getIds({filter: this._options && this._options.filter});
-      for (i = 0, len = ids.length; i < len; i++) {
-        id = ids[i];
-        this._ids[id] = true;
-      }
-      this._trigger('add', {items: ids});
-
-      // subscribe to new dataset
-      if (this._data.on) {
-        this._data.on('*', this.listener);
-      }
-    }
-  };
-
-  /**
-   * Get data from the data view
-   *
-   * Usage:
-   *
-   *     get()
-   *     get(options: Object)
-   *     get(options: Object, data: Array | DataTable)
-   *
-   *     get(id: Number)
-   *     get(id: Number, options: Object)
-   *     get(id: Number, options: Object, data: Array | DataTable)
-   *
-   *     get(ids: Number[])
-   *     get(ids: Number[], options: Object)
-   *     get(ids: Number[], options: Object, data: Array | DataTable)
-   *
-   * Where:
-   *
-   * {Number | String} id         The id of an item
-   * {Number[] | String{}} ids    An array with ids of items
-   * {Object} options             An Object with options. Available options:
-   *                              {String} [type] Type of data to be returned. Can
-   *                                              be 'DataTable' or 'Array' (default)
-   *                              {Object.<String, String>} [convert]
-   *                              {String[]} [fields] field names to be returned
-   *                              {function} [filter] filter items
-   *                              {String | function} [order] Order the items by
-   *                                  a field name or custom sort function.
-   * {Array | DataTable} [data]   If provided, items will be appended to this
-   *                              array or table. Required in case of Google
-   *                              DataTable.
-   * @param args
-   */
-  DataView.prototype.get = function (args) {
-    var me = this;
-
-    // parse the arguments
-    var ids, options, data;
-    var firstType = util.getType(arguments[0]);
-    if (firstType == 'String' || firstType == 'Number' || firstType == 'Array') {
-      // get(id(s) [, options] [, data])
-      ids = arguments[0];  // can be a single id or an array with ids
-      options = arguments[1];
-      data = arguments[2];
-    }
-    else {
-      // get([, options] [, data])
-      options = arguments[0];
-      data = arguments[1];
-    }
-
-    // extend the options with the default options and provided options
-    var viewOptions = util.extend({}, this._options, options);
-
-    // create a combined filter method when needed
-    if (this._options.filter && options && options.filter) {
-      viewOptions.filter = function (item) {
-        return me._options.filter(item) && options.filter(item);
-      }
-    }
-
-    // build up the call to the linked data set
-    var getArguments = [];
-    if (ids != undefined) {
-      getArguments.push(ids);
-    }
-    getArguments.push(viewOptions);
-    getArguments.push(data);
-
-    return this._data && this._data.get.apply(this._data, getArguments);
-  };
-
-  /**
-   * Get ids of all items or from a filtered set of items.
-   * @param {Object} [options]    An Object with options. Available options:
-   *                              {function} [filter] filter items
-   *                              {String | function} [order] Order the items by
-   *                                  a field name or custom sort function.
-   * @return {Array} ids
-   */
-  DataView.prototype.getIds = function (options) {
-    var ids;
-
-    if (this._data) {
-      var defaultFilter = this._options.filter;
-      var filter;
-
-      if (options && options.filter) {
-        if (defaultFilter) {
-          filter = function (item) {
-            return defaultFilter(item) && options.filter(item);
-          }
-        }
-        else {
-          filter = options.filter;
-        }
-      }
-      else {
-        filter = defaultFilter;
-      }
-
-      ids = this._data.getIds({
-        filter: filter,
-        order: options && options.order
-      });
-    }
-    else {
-      ids = [];
-    }
-
-    return ids;
-  };
-
-  /**
-   * Get the DataSet to which this DataView is connected. In case there is a chain
-   * of multiple DataViews, the root DataSet of this chain is returned.
-   * @return {DataSet} dataSet
-   */
-  DataView.prototype.getDataSet = function () {
-    var dataSet = this;
-    while (dataSet instanceof DataView) {
-      dataSet = dataSet._data;
-    }
-    return dataSet || null;
-  };
-
-  /**
-   * Event listener. Will propagate all events from the connected data set to
-   * the subscribers of the DataView, but will filter the items and only trigger
-   * when there are changes in the filtered data set.
-   * @param {String} event
-   * @param {Object | null} params
-   * @param {String} senderId
-   * @private
-   */
-  DataView.prototype._onEvent = function (event, params, senderId) {
-    var i, len, id, item,
-        ids = params && params.items,
-        data = this._data,
-        added = [],
-        updated = [],
-        removed = [];
-
-    if (ids && data) {
-      switch (event) {
-        case 'add':
-          // filter the ids of the added items
-          for (i = 0, len = ids.length; i < len; i++) {
-            id = ids[i];
-            item = this.get(id);
-            if (item) {
-              this._ids[id] = true;
-              added.push(id);
-            }
-          }
-
-          break;
-
-        case 'update':
-          // determine the event from the views viewpoint: an updated
-          // item can be added, updated, or removed from this view.
-          for (i = 0, len = ids.length; i < len; i++) {
-            id = ids[i];
-            item = this.get(id);
-
-            if (item) {
-              if (this._ids[id]) {
-                updated.push(id);
-              }
-              else {
-                this._ids[id] = true;
-                added.push(id);
-              }
-            }
-            else {
-              if (this._ids[id]) {
-                delete this._ids[id];
-                removed.push(id);
-              }
-              else {
-                // nothing interesting for me :-(
-              }
-            }
-          }
-
-          break;
-
-        case 'remove':
-          // filter the ids of the removed items
-          for (i = 0, len = ids.length; i < len; i++) {
-            id = ids[i];
-            if (this._ids[id]) {
-              delete this._ids[id];
-              removed.push(id);
-            }
-          }
-
-          break;
-      }
-
-      if (added.length) {
-        this._trigger('add', {items: added}, senderId);
-      }
-      if (updated.length) {
-        this._trigger('update', {items: updated}, senderId);
-      }
-      if (removed.length) {
-        this._trigger('remove', {items: removed}, senderId);
-      }
-    }
-  };
-
-  // copy subscription functionality from DataSet
-  DataView.prototype.on = DataSet.prototype.on;
-  DataView.prototype.off = DataSet.prototype.off;
-  DataView.prototype._trigger = DataSet.prototype._trigger;
-
-  // TODO: make these functions deprecated (replaced with `on` and `off` since version 0.5)
-  DataView.prototype.subscribe = DataView.prototype.on;
-  DataView.prototype.unsubscribe = DataView.prototype.off;
-
-  module.exports = DataView;
-
-/***/ },
-/* 5 */
-/***/ function(module, exports, __webpack_require__) {
-
-  /**
-   * A queue
-   * @param {Object} options
-   *            Available options:
-   *            - delay: number    When provided, the queue will be flushed
-   *                               automatically after an inactivity of this delay
-   *                               in milliseconds.
-   *                               Default value is null.
-   *            - max: number      When the queue exceeds the given maximum number
-   *                               of entries, the queue is flushed automatically.
-   *                               Default value of max is Infinity.
-   * @constructor
-   */
-  function Queue(options) {
-    // options
-    this.delay = null;
-    this.max = Infinity;
-
-    // properties
-    this._queue = [];
-    this._timeout = null;
-    this._extended = null;
-
-    this.setOptions(options);
-  }
-
-  /**
-   * Update the configuration of the queue
-   * @param {Object} options
-   *            Available options:
-   *            - delay: number    When provided, the queue will be flushed
-   *                               automatically after an inactivity of this delay
-   *                               in milliseconds.
-   *                               Default value is null.
-   *            - max: number      When the queue exceeds the given maximum number
-   *                               of entries, the queue is flushed automatically.
-   *                               Default value of max is Infinity.
-   * @param options
-   */
-  Queue.prototype.setOptions = function (options) {
-    if (options && typeof options.delay !== 'undefined') {
-      this.delay = options.delay;
-    }
-    if (options && typeof options.max !== 'undefined') {
-      this.max = options.max;
-    }
-
-    this._flushIfNeeded();
-  };
-
-  /**
-   * Extend an object with queuing functionality.
-   * The object will be extended with a function flush, and the methods provided
-   * in options.replace will be replaced with queued ones.
-   * @param {Object} object
-   * @param {Object} options
-   *            Available options:
-   *            - replace: Array.<string>
-   *                               A list with method names of the methods
-   *                               on the object to be replaced with queued ones.
-   *            - delay: number    When provided, the queue will be flushed
-   *                               automatically after an inactivity of this delay
-   *                               in milliseconds.
-   *                               Default value is null.
-   *            - max: number      When the queue exceeds the given maximum number
-   *                               of entries, the queue is flushed automatically.
-   *                               Default value of max is Infinity.
-   * @return {Queue} Returns the created queue
-   */
-  Queue.extend = function (object, options) {
-    var queue = new Queue(options);
-
-    if (object.flush !== undefined) {
-      throw new Error('Target object already has a property flush');
-    }
-    object.flush = function () {
-      queue.flush();
-    };
-
-    var methods = [{
-      name: 'flush',
-      original: undefined
-    }];
-
-    if (options && options.replace) {
-      for (var i = 0; i < options.replace.length; i++) {
-        var name = options.replace[i];
-        methods.push({
-          name: name,
-          original: object[name]
-        });
-        queue.replace(object, name);
-      }
-    }
-
-    queue._extended = {
-      object: object,
-      methods: methods
-    };
-
-    return queue;
-  };
-
-  /**
-   * Destroy the queue. The queue will first flush all queued actions, and in
-   * case it has extended an object, will restore the original object.
-   */
-  Queue.prototype.destroy = function () {
-    this.flush();
-
-    if (this._extended) {
-      var object = this._extended.object;
-      var methods = this._extended.methods;
-      for (var i = 0; i < methods.length; i++) {
-        var method = methods[i];
-        if (method.original) {
-          object[method.name] = method.original;
-        }
-        else {
-          delete object[method.name];
-        }
-      }
-      this._extended = null;
-    }
-  };
-
-  /**
-   * Replace a method on an object with a queued version
-   * @param {Object} object   Object having the method
-   * @param {string} method   The method name
-   */
-  Queue.prototype.replace = function(object, method) {
-    var me = this;
-    var original = object[method];
-    if (!original) {
-      throw new Error('Method ' + method + ' undefined');
-    }
-
-    object[method] = function () {
-      // create an Array with the arguments
-      var args = [];
-      for (var i = 0; i < arguments.length; i++) {
-        args[i] = arguments[i];
-      }
-
-      // add this call to the queue
-      me.queue({
-        args: args,
-        fn: original,
-        context: this
-      });
-    };
-  };
-
-  /**
-   * Queue a call
-   * @param {function | {fn: function, args: Array} | {fn: function, args: Array, context: Object}} entry
-   */
-  Queue.prototype.queue = function(entry) {
-    if (typeof entry === 'function') {
-      this._queue.push({fn: entry});
-    }
-    else {
-      this._queue.push(entry);
-    }
-
-    this._flushIfNeeded();
-  };
-
-  /**
-   * Check whether the queue needs to be flushed
-   * @private
-   */
-  Queue.prototype._flushIfNeeded = function () {
-    // flush when the maximum is exceeded.
-    if (this._queue.length > this.max) {
-      this.flush();
-    }
-
-    // flush after a period of inactivity when a delay is configured
-    clearTimeout(this._timeout);
-    if (this.queue.length > 0 && typeof this.delay === 'number') {
-      var me = this;
-      this._timeout = setTimeout(function () {
-        me.flush();
-      }, this.delay);
-    }
-  };
-
-  /**
-   * Flush all queued calls
-   */
-  Queue.prototype.flush = function () {
-    while (this._queue.length > 0) {
-      var entry = this._queue.shift();
-      entry.fn.apply(entry.context || entry.fn, entry.args || []);
-    }
-  };
-
-  module.exports = Queue;
-
-
-/***/ },
 /* 6 */
 /***/ function(module, exports, __webpack_require__) {
 
   var Emitter = __webpack_require__(56);
-  var DataSet = __webpack_require__(3);
-  var DataView = __webpack_require__(4);
+  var DataSet = __webpack_require__(5);
+  var DataView = __webpack_require__(3);
   var util = __webpack_require__(1);
   var Point3d = __webpack_require__(10);
   var Point2d = __webpack_require__(9);
@@ -5511,7 +5511,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 8 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var DataView = __webpack_require__(4);
+  var DataView = __webpack_require__(3);
 
   /**
    * @class Filter
@@ -6342,10 +6342,10 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var Emitter = __webpack_require__(56);
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
   var util = __webpack_require__(1);
-  var DataSet = __webpack_require__(3);
-  var DataView = __webpack_require__(4);
+  var DataSet = __webpack_require__(5);
+  var DataView = __webpack_require__(3);
   var Range = __webpack_require__(17);
   var Core = __webpack_require__(46);
   var TimeAxis = __webpack_require__(35);
@@ -6662,10 +6662,10 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var Emitter = __webpack_require__(56);
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
   var util = __webpack_require__(1);
-  var DataSet = __webpack_require__(3);
-  var DataView = __webpack_require__(4);
+  var DataSet = __webpack_require__(5);
+  var DataView = __webpack_require__(3);
   var Range = __webpack_require__(17);
   var Core = __webpack_require__(46);
   var TimeAxis = __webpack_require__(35);
@@ -6914,7 +6914,7 @@ return /******/ (function(modules) { // webpackBootstrap
   /**
    * Created by Alex on 10/3/2014.
    */
-  var moment = __webpack_require__(44);
+  var moment = __webpack_require__(43);
 
 
   /**
@@ -7664,7 +7664,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
   var util = __webpack_require__(1);
   var hammerUtil = __webpack_require__(47);
-  var moment = __webpack_require__(44);
+  var moment = __webpack_require__(43);
   var Component = __webpack_require__(25);
   var DateUtil = __webpack_require__(15);
 
@@ -8478,7 +8478,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 19 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var moment = __webpack_require__(44);
+  var moment = __webpack_require__(43);
   var DateUtil = __webpack_require__(15);
   var util = __webpack_require__(1);
 
@@ -9086,7 +9086,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 20 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
   var util = __webpack_require__(1);
 
   /**
@@ -9351,7 +9351,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 21 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
   var Item = __webpack_require__(20);
   var BackgroundGroup = __webpack_require__(31);
   var RangeItem = __webpack_require__(24);
@@ -9984,7 +9984,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 24 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
   var Item = __webpack_require__(20);
 
   /**
@@ -10353,7 +10353,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
   var util = __webpack_require__(1);
   var Component = __webpack_require__(25);
-  var moment = __webpack_require__(44);
+  var moment = __webpack_require__(43);
   var locales = __webpack_require__(48);
 
   /**
@@ -10520,10 +10520,10 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 27 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
   var util = __webpack_require__(1);
   var Component = __webpack_require__(25);
-  var moment = __webpack_require__(44);
+  var moment = __webpack_require__(43);
   var locales = __webpack_require__(48);
 
   /**
@@ -12210,10 +12210,10 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 32 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
   var util = __webpack_require__(1);
-  var DataSet = __webpack_require__(3);
-  var DataView = __webpack_require__(4);
+  var DataSet = __webpack_require__(5);
+  var DataView = __webpack_require__(3);
   var Component = __webpack_require__(25);
   var Group = __webpack_require__(30);
   var BackgroundGroup = __webpack_require__(31);
@@ -13960,8 +13960,8 @@ return /******/ (function(modules) { // webpackBootstrap
 
   var util = __webpack_require__(1);
   var DOMutil = __webpack_require__(2);
-  var DataSet = __webpack_require__(3);
-  var DataView = __webpack_require__(4);
+  var DataSet = __webpack_require__(5);
+  var DataView = __webpack_require__(3);
   var Component = __webpack_require__(25);
   var DataAxis = __webpack_require__(28);
   var GraphGroup = __webpack_require__(29);
@@ -14960,11 +14960,11 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
   var Component = __webpack_require__(25);
   var TimeStep = __webpack_require__(19);
   var DateUtil = __webpack_require__(15);
-  var moment = __webpack_require__(44);
+  var moment = __webpack_require__(43);
 
   /**
    * A horizontal time axis
@@ -15455,19 +15455,19 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var Emitter = __webpack_require__(56);
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
   var keycharm = __webpack_require__(57);
   var util = __webpack_require__(1);
   var hammerUtil = __webpack_require__(47);
-  var DataSet = __webpack_require__(3);
-  var DataView = __webpack_require__(4);
-  var dotparser = __webpack_require__(42);
-  var gephiParser = __webpack_require__(43);
+  var DataSet = __webpack_require__(5);
+  var DataView = __webpack_require__(3);
+  var dotparser = __webpack_require__(41);
+  var gephiParser = __webpack_require__(42);
   var Groups = __webpack_require__(38);
   var Images = __webpack_require__(39);
-  var Node = __webpack_require__(40);
+  var Node = __webpack_require__(45);
   var Edge = __webpack_require__(37);
-  var Popup = __webpack_require__(41);
+  var Popup = __webpack_require__(40);
   var MixinLoader = __webpack_require__(52);
   var Activator = __webpack_require__(53);
   var locales = __webpack_require__(54);
@@ -18188,7 +18188,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Node = __webpack_require__(40);
+  var Node = __webpack_require__(45);
 
   /**
    * @class Edge
@@ -19709,6 +19709,1074 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 40 */
 /***/ function(module, exports, __webpack_require__) {
 
+  /**
+   * Popup is a class to create a popup window with some text
+   * @param {Element}  container     The container object.
+   * @param {Number} [x]
+   * @param {Number} [y]
+   * @param {String} [text]
+   * @param {Object} [style]     An object containing borderColor,
+   *                             backgroundColor, etc.
+   */
+  function Popup(container, x, y, text, style) {
+    if (container) {
+      this.container = container;
+    }
+    else {
+      this.container = document.body;
+    }
+
+    // x, y and text are optional, see if a style object was passed in their place
+    if (style === undefined) {
+      if (typeof x === "object") {
+        style = x;
+        x = undefined;
+      } else if (typeof text === "object") {
+        style = text;
+        text = undefined;
+      } else {
+        // for backwards compatibility, in case clients other than Network are creating Popup directly
+        style = {
+          fontColor: 'black',
+          fontSize: 14, // px
+          fontFace: 'verdana',
+          color: {
+            border: '#666',
+            background: '#FFFFC6'
+          }
+        }
+      }
+    }
+
+    this.x = 0;
+    this.y = 0;
+    this.padding = 5;
+
+    if (x !== undefined && y !== undefined ) {
+      this.setPosition(x, y);
+    }
+    if (text !== undefined) {
+      this.setText(text);
+    }
+
+    // create the frame
+    this.frame = document.createElement("div");
+    var styleAttr = this.frame.style;
+    styleAttr.position = "absolute";
+    styleAttr.visibility = "hidden";
+    styleAttr.border = "1px solid " + style.color.border;
+    styleAttr.color = style.fontColor;
+    styleAttr.fontSize = style.fontSize + "px";
+    styleAttr.fontFamily = style.fontFace;
+    styleAttr.padding = this.padding + "px";
+    styleAttr.backgroundColor = style.color.background;
+    styleAttr.borderRadius = "3px";
+    styleAttr.MozBorderRadius = "3px";
+    styleAttr.WebkitBorderRadius = "3px";
+    styleAttr.boxShadow = "3px 3px 10px rgba(128, 128, 128, 0.5)";
+    styleAttr.whiteSpace = "nowrap";
+    this.container.appendChild(this.frame);
+  }
+
+  /**
+   * @param {number} x   Horizontal position of the popup window
+   * @param {number} y   Vertical position of the popup window
+   */
+  Popup.prototype.setPosition = function(x, y) {
+    this.x = parseInt(x);
+    this.y = parseInt(y);
+  };
+
+  /**
+   * Set the content for the popup window. This can be HTML code or text.
+   * @param {string | Element} content
+   */
+  Popup.prototype.setText = function(content) {
+    if (content instanceof Element) {
+      this.frame.innerHTML = '';
+      this.frame.appendChild(content);
+    }
+    else {
+      this.frame.innerHTML = content; // string containing text or HTML
+    }
+  };
+
+  /**
+   * Show the popup window
+   * @param {boolean} show    Optional. Show or hide the window
+   */
+  Popup.prototype.show = function (show) {
+    if (show === undefined) {
+      show = true;
+    }
+
+    if (show) {
+      var height = this.frame.clientHeight;
+      var width =  this.frame.clientWidth;
+      var maxHeight = this.frame.parentNode.clientHeight;
+      var maxWidth = this.frame.parentNode.clientWidth;
+
+      var top = (this.y - height);
+      if (top + height + this.padding > maxHeight) {
+        top = maxHeight - height - this.padding;
+      }
+      if (top < this.padding) {
+        top = this.padding;
+      }
+
+      var left = this.x;
+      if (left + width + this.padding > maxWidth) {
+        left = maxWidth - width - this.padding;
+      }
+      if (left < this.padding) {
+        left = this.padding;
+      }
+
+      this.frame.style.left = left + "px";
+      this.frame.style.top = top + "px";
+      this.frame.style.visibility = "visible";
+    }
+    else {
+      this.hide();
+    }
+  };
+
+  /**
+   * Hide the popup window
+   */
+  Popup.prototype.hide = function () {
+    this.frame.style.visibility = "hidden";
+  };
+
+  module.exports = Popup;
+
+
+/***/ },
+/* 41 */
+/***/ function(module, exports, __webpack_require__) {
+
+  /**
+   * Parse a text source containing data in DOT language into a JSON object.
+   * The object contains two lists: one with nodes and one with edges.
+   *
+   * DOT language reference: http://www.graphviz.org/doc/info/lang.html
+   *
+   * @param {String} data     Text containing a graph in DOT-notation
+   * @return {Object} graph   An object containing two parameters:
+   *                          {Object[]} nodes
+   *                          {Object[]} edges
+   */
+  function parseDOT (data) {
+    dot = data;
+    return parseGraph();
+  }
+
+  // token types enumeration
+  var TOKENTYPE = {
+    NULL : 0,
+    DELIMITER : 1,
+    IDENTIFIER: 2,
+    UNKNOWN : 3
+  };
+
+  // map with all delimiters
+  var DELIMITERS = {
+    '{': true,
+    '}': true,
+    '[': true,
+    ']': true,
+    ';': true,
+    '=': true,
+    ',': true,
+
+    '->': true,
+    '--': true
+  };
+
+  var dot = '';                   // current dot file
+  var index = 0;                  // current index in dot file
+  var c = '';                     // current token character in expr
+  var token = '';                 // current token
+  var tokenType = TOKENTYPE.NULL; // type of the token
+
+  /**
+   * Get the first character from the dot file.
+   * The character is stored into the char c. If the end of the dot file is
+   * reached, the function puts an empty string in c.
+   */
+  function first() {
+    index = 0;
+    c = dot.charAt(0);
+  }
+
+  /**
+   * Get the next character from the dot file.
+   * The character is stored into the char c. If the end of the dot file is
+   * reached, the function puts an empty string in c.
+   */
+  function next() {
+    index++;
+    c = dot.charAt(index);
+  }
+
+  /**
+   * Preview the next character from the dot file.
+   * @return {String} cNext
+   */
+  function nextPreview() {
+    return dot.charAt(index + 1);
+  }
+
+  /**
+   * Test whether given character is alphabetic or numeric
+   * @param {String} c
+   * @return {Boolean} isAlphaNumeric
+   */
+  var regexAlphaNumeric = /[a-zA-Z_0-9.:#]/;
+  function isAlphaNumeric(c) {
+    return regexAlphaNumeric.test(c);
+  }
+
+  /**
+   * Merge all properties of object b into object b
+   * @param {Object} a
+   * @param {Object} b
+   * @return {Object} a
+   */
+  function merge (a, b) {
+    if (!a) {
+      a = {};
+    }
+
+    if (b) {
+      for (var name in b) {
+        if (b.hasOwnProperty(name)) {
+          a[name] = b[name];
+        }
+      }
+    }
+    return a;
+  }
+
+  /**
+   * Set a value in an object, where the provided parameter name can be a
+   * path with nested parameters. For example:
+   *
+   *     var obj = {a: 2};
+   *     setValue(obj, 'b.c', 3);     // obj = {a: 2, b: {c: 3}}
+   *
+   * @param {Object} obj
+   * @param {String} path  A parameter name or dot-separated parameter path,
+   *                      like "color.highlight.border".
+   * @param {*} value
+   */
+  function setValue(obj, path, value) {
+    var keys = path.split('.');
+    var o = obj;
+    while (keys.length) {
+      var key = keys.shift();
+      if (keys.length) {
+        // this isn't the end point
+        if (!o[key]) {
+          o[key] = {};
+        }
+        o = o[key];
+      }
+      else {
+        // this is the end point
+        o[key] = value;
+      }
+    }
+  }
+
+  /**
+   * Add a node to a graph object. If there is already a node with
+   * the same id, their attributes will be merged.
+   * @param {Object} graph
+   * @param {Object} node
+   */
+  function addNode(graph, node) {
+    var i, len;
+    var current = null;
+
+    // find root graph (in case of subgraph)
+    var graphs = [graph]; // list with all graphs from current graph to root graph
+    var root = graph;
+    while (root.parent) {
+      graphs.push(root.parent);
+      root = root.parent;
+    }
+
+    // find existing node (at root level) by its id
+    if (root.nodes) {
+      for (i = 0, len = root.nodes.length; i < len; i++) {
+        if (node.id === root.nodes[i].id) {
+          current = root.nodes[i];
+          break;
+        }
+      }
+    }
+
+    if (!current) {
+      // this is a new node
+      current = {
+        id: node.id
+      };
+      if (graph.node) {
+        // clone default attributes
+        current.attr = merge(current.attr, graph.node);
+      }
+    }
+
+    // add node to this (sub)graph and all its parent graphs
+    for (i = graphs.length - 1; i >= 0; i--) {
+      var g = graphs[i];
+
+      if (!g.nodes) {
+        g.nodes = [];
+      }
+      if (g.nodes.indexOf(current) == -1) {
+        g.nodes.push(current);
+      }
+    }
+
+    // merge attributes
+    if (node.attr) {
+      current.attr = merge(current.attr, node.attr);
+    }
+  }
+
+  /**
+   * Add an edge to a graph object
+   * @param {Object} graph
+   * @param {Object} edge
+   */
+  function addEdge(graph, edge) {
+    if (!graph.edges) {
+      graph.edges = [];
+    }
+    graph.edges.push(edge);
+    if (graph.edge) {
+      var attr = merge({}, graph.edge);     // clone default attributes
+      edge.attr = merge(attr, edge.attr); // merge attributes
+    }
+  }
+
+  /**
+   * Create an edge to a graph object
+   * @param {Object} graph
+   * @param {String | Number | Object} from
+   * @param {String | Number | Object} to
+   * @param {String} type
+   * @param {Object | null} attr
+   * @return {Object} edge
+   */
+  function createEdge(graph, from, to, type, attr) {
+    var edge = {
+      from: from,
+      to: to,
+      type: type
+    };
+
+    if (graph.edge) {
+      edge.attr = merge({}, graph.edge);  // clone default attributes
+    }
+    edge.attr = merge(edge.attr || {}, attr); // merge attributes
+
+    return edge;
+  }
+
+  /**
+   * Get next token in the current dot file.
+   * The token and token type are available as token and tokenType
+   */
+  function getToken() {
+    tokenType = TOKENTYPE.NULL;
+    token = '';
+
+    // skip over whitespaces
+    while (c == ' ' || c == '\t' || c == '\n' || c == '\r') {  // space, tab, enter
+      next();
+    }
+
+    do {
+      var isComment = false;
+
+      // skip comment
+      if (c == '#') {
+        // find the previous non-space character
+        var i = index - 1;
+        while (dot.charAt(i) == ' ' || dot.charAt(i) == '\t') {
+          i--;
+        }
+        if (dot.charAt(i) == '\n' || dot.charAt(i) == '') {
+          // the # is at the start of a line, this is indeed a line comment
+          while (c != '' && c != '\n') {
+            next();
+          }
+          isComment = true;
+        }
+      }
+      if (c == '/' && nextPreview() == '/') {
+        // skip line comment
+        while (c != '' && c != '\n') {
+          next();
+        }
+        isComment = true;
+      }
+      if (c == '/' && nextPreview() == '*') {
+        // skip block comment
+        while (c != '') {
+          if (c == '*' && nextPreview() == '/') {
+            // end of block comment found. skip these last two characters
+            next();
+            next();
+            break;
+          }
+          else {
+            next();
+          }
+        }
+        isComment = true;
+      }
+
+      // skip over whitespaces
+      while (c == ' ' || c == '\t' || c == '\n' || c == '\r') {  // space, tab, enter
+        next();
+      }
+    }
+    while (isComment);
+
+    // check for end of dot file
+    if (c == '') {
+      // token is still empty
+      tokenType = TOKENTYPE.DELIMITER;
+      return;
+    }
+
+    // check for delimiters consisting of 2 characters
+    var c2 = c + nextPreview();
+    if (DELIMITERS[c2]) {
+      tokenType = TOKENTYPE.DELIMITER;
+      token = c2;
+      next();
+      next();
+      return;
+    }
+
+    // check for delimiters consisting of 1 character
+    if (DELIMITERS[c]) {
+      tokenType = TOKENTYPE.DELIMITER;
+      token = c;
+      next();
+      return;
+    }
+
+    // check for an identifier (number or string)
+    // TODO: more precise parsing of numbers/strings (and the port separator ':')
+    if (isAlphaNumeric(c) || c == '-') {
+      token += c;
+      next();
+
+      while (isAlphaNumeric(c)) {
+        token += c;
+        next();
+      }
+      if (token == 'false') {
+        token = false;   // convert to boolean
+      }
+      else if (token == 'true') {
+        token = true;   // convert to boolean
+      }
+      else if (!isNaN(Number(token))) {
+        token = Number(token); // convert to number
+      }
+      tokenType = TOKENTYPE.IDENTIFIER;
+      return;
+    }
+
+    // check for a string enclosed by double quotes
+    if (c == '"') {
+      next();
+      while (c != '' && (c != '"' || (c == '"' && nextPreview() == '"'))) {
+        token += c;
+        if (c == '"') { // skip the escape character
+          next();
+        }
+        next();
+      }
+      if (c != '"') {
+        throw newSyntaxError('End of string " expected');
+      }
+      next();
+      tokenType = TOKENTYPE.IDENTIFIER;
+      return;
+    }
+
+    // something unknown is found, wrong characters, a syntax error
+    tokenType = TOKENTYPE.UNKNOWN;
+    while (c != '') {
+      token += c;
+      next();
+    }
+    throw new SyntaxError('Syntax error in part "' + chop(token, 30) + '"');
+  }
+
+  /**
+   * Parse a graph.
+   * @returns {Object} graph
+   */
+  function parseGraph() {
+    var graph = {};
+
+    first();
+    getToken();
+
+    // optional strict keyword
+    if (token == 'strict') {
+      graph.strict = true;
+      getToken();
+    }
+
+    // graph or digraph keyword
+    if (token == 'graph' || token == 'digraph') {
+      graph.type = token;
+      getToken();
+    }
+
+    // optional graph id
+    if (tokenType == TOKENTYPE.IDENTIFIER) {
+      graph.id = token;
+      getToken();
+    }
+
+    // open angle bracket
+    if (token != '{') {
+      throw newSyntaxError('Angle bracket { expected');
+    }
+    getToken();
+
+    // statements
+    parseStatements(graph);
+
+    // close angle bracket
+    if (token != '}') {
+      throw newSyntaxError('Angle bracket } expected');
+    }
+    getToken();
+
+    // end of file
+    if (token !== '') {
+      throw newSyntaxError('End of file expected');
+    }
+    getToken();
+
+    // remove temporary default properties
+    delete graph.node;
+    delete graph.edge;
+    delete graph.graph;
+
+    return graph;
+  }
+
+  /**
+   * Parse a list with statements.
+   * @param {Object} graph
+   */
+  function parseStatements (graph) {
+    while (token !== '' && token != '}') {
+      parseStatement(graph);
+      if (token == ';') {
+        getToken();
+      }
+    }
+  }
+
+  /**
+   * Parse a single statement. Can be a an attribute statement, node
+   * statement, a series of node statements and edge statements, or a
+   * parameter.
+   * @param {Object} graph
+   */
+  function parseStatement(graph) {
+    // parse subgraph
+    var subgraph = parseSubgraph(graph);
+    if (subgraph) {
+      // edge statements
+      parseEdge(graph, subgraph);
+
+      return;
+    }
+
+    // parse an attribute statement
+    var attr = parseAttributeStatement(graph);
+    if (attr) {
+      return;
+    }
+
+    // parse node
+    if (tokenType != TOKENTYPE.IDENTIFIER) {
+      throw newSyntaxError('Identifier expected');
+    }
+    var id = token; // id can be a string or a number
+    getToken();
+
+    if (token == '=') {
+      // id statement
+      getToken();
+      if (tokenType != TOKENTYPE.IDENTIFIER) {
+        throw newSyntaxError('Identifier expected');
+      }
+      graph[id] = token;
+      getToken();
+      // TODO: implement comma separated list with "a_list: ID=ID [','] [a_list] "
+    }
+    else {
+      parseNodeStatement(graph, id);
+    }
+  }
+
+  /**
+   * Parse a subgraph
+   * @param {Object} graph    parent graph object
+   * @return {Object | null} subgraph
+   */
+  function parseSubgraph (graph) {
+    var subgraph = null;
+
+    // optional subgraph keyword
+    if (token == 'subgraph') {
+      subgraph = {};
+      subgraph.type = 'subgraph';
+      getToken();
+
+      // optional graph id
+      if (tokenType == TOKENTYPE.IDENTIFIER) {
+        subgraph.id = token;
+        getToken();
+      }
+    }
+
+    // open angle bracket
+    if (token == '{') {
+      getToken();
+
+      if (!subgraph) {
+        subgraph = {};
+      }
+      subgraph.parent = graph;
+      subgraph.node = graph.node;
+      subgraph.edge = graph.edge;
+      subgraph.graph = graph.graph;
+
+      // statements
+      parseStatements(subgraph);
+
+      // close angle bracket
+      if (token != '}') {
+        throw newSyntaxError('Angle bracket } expected');
+      }
+      getToken();
+
+      // remove temporary default properties
+      delete subgraph.node;
+      delete subgraph.edge;
+      delete subgraph.graph;
+      delete subgraph.parent;
+
+      // register at the parent graph
+      if (!graph.subgraphs) {
+        graph.subgraphs = [];
+      }
+      graph.subgraphs.push(subgraph);
+    }
+
+    return subgraph;
+  }
+
+  /**
+   * parse an attribute statement like "node [shape=circle fontSize=16]".
+   * Available keywords are 'node', 'edge', 'graph'.
+   * The previous list with default attributes will be replaced
+   * @param {Object} graph
+   * @returns {String | null} keyword Returns the name of the parsed attribute
+   *                                  (node, edge, graph), or null if nothing
+   *                                  is parsed.
+   */
+  function parseAttributeStatement (graph) {
+    // attribute statements
+    if (token == 'node') {
+      getToken();
+
+      // node attributes
+      graph.node = parseAttributeList();
+      return 'node';
+    }
+    else if (token == 'edge') {
+      getToken();
+
+      // edge attributes
+      graph.edge = parseAttributeList();
+      return 'edge';
+    }
+    else if (token == 'graph') {
+      getToken();
+
+      // graph attributes
+      graph.graph = parseAttributeList();
+      return 'graph';
+    }
+
+    return null;
+  }
+
+  /**
+   * parse a node statement
+   * @param {Object} graph
+   * @param {String | Number} id
+   */
+  function parseNodeStatement(graph, id) {
+    // node statement
+    var node = {
+      id: id
+    };
+    var attr = parseAttributeList();
+    if (attr) {
+      node.attr = attr;
+    }
+    addNode(graph, node);
+
+    // edge statements
+    parseEdge(graph, id);
+  }
+
+  /**
+   * Parse an edge or a series of edges
+   * @param {Object} graph
+   * @param {String | Number} from        Id of the from node
+   */
+  function parseEdge(graph, from) {
+    while (token == '->' || token == '--') {
+      var to;
+      var type = token;
+      getToken();
+
+      var subgraph = parseSubgraph(graph);
+      if (subgraph) {
+        to = subgraph;
+      }
+      else {
+        if (tokenType != TOKENTYPE.IDENTIFIER) {
+          throw newSyntaxError('Identifier or subgraph expected');
+        }
+        to = token;
+        addNode(graph, {
+          id: to
+        });
+        getToken();
+      }
+
+      // parse edge attributes
+      var attr = parseAttributeList();
+
+      // create edge
+      var edge = createEdge(graph, from, to, type, attr);
+      addEdge(graph, edge);
+
+      from = to;
+    }
+  }
+
+  /**
+   * Parse a set with attributes,
+   * for example [label="1.000", shape=solid]
+   * @return {Object | null} attr
+   */
+  function parseAttributeList() {
+    var attr = null;
+
+    while (token == '[') {
+      getToken();
+      attr = {};
+      while (token !== '' && token != ']') {
+        if (tokenType != TOKENTYPE.IDENTIFIER) {
+          throw newSyntaxError('Attribute name expected');
+        }
+        var name = token;
+
+        getToken();
+        if (token != '=') {
+          throw newSyntaxError('Equal sign = expected');
+        }
+        getToken();
+
+        if (tokenType != TOKENTYPE.IDENTIFIER) {
+          throw newSyntaxError('Attribute value expected');
+        }
+        var value = token;
+        setValue(attr, name, value); // name can be a path
+
+        getToken();
+        if (token ==',') {
+          getToken();
+        }
+      }
+
+      if (token != ']') {
+        throw newSyntaxError('Bracket ] expected');
+      }
+      getToken();
+    }
+
+    return attr;
+  }
+
+  /**
+   * Create a syntax error with extra information on current token and index.
+   * @param {String} message
+   * @returns {SyntaxError} err
+   */
+  function newSyntaxError(message) {
+    return new SyntaxError(message + ', got "' + chop(token, 30) + '" (char ' + index + ')');
+  }
+
+  /**
+   * Chop off text after a maximum length
+   * @param {String} text
+   * @param {Number} maxLength
+   * @returns {String}
+   */
+  function chop (text, maxLength) {
+    return (text.length <= maxLength) ? text : (text.substr(0, 27) + '...');
+  }
+
+  /**
+   * Execute a function fn for each pair of elements in two arrays
+   * @param {Array | *} array1
+   * @param {Array | *} array2
+   * @param {function} fn
+   */
+  function forEach2(array1, array2, fn) {
+    if (Array.isArray(array1)) {
+      array1.forEach(function (elem1) {
+        if (Array.isArray(array2)) {
+          array2.forEach(function (elem2)  {
+            fn(elem1, elem2);
+          });
+        }
+        else {
+          fn(elem1, array2);
+        }
+      });
+    }
+    else {
+      if (Array.isArray(array2)) {
+        array2.forEach(function (elem2)  {
+          fn(array1, elem2);
+        });
+      }
+      else {
+        fn(array1, array2);
+      }
+    }
+  }
+
+  /**
+   * Convert a string containing a graph in DOT language into a map containing
+   * with nodes and edges in the format of graph.
+   * @param {String} data         Text containing a graph in DOT-notation
+   * @return {Object} graphData
+   */
+  function DOTToGraph (data) {
+    // parse the DOT file
+    var dotData = parseDOT(data);
+    var graphData = {
+      nodes: [],
+      edges: [],
+      options: {}
+    };
+
+    // copy the nodes
+    if (dotData.nodes) {
+      dotData.nodes.forEach(function (dotNode) {
+        var graphNode = {
+          id: dotNode.id,
+          label: String(dotNode.label || dotNode.id)
+        };
+        merge(graphNode, dotNode.attr);
+        if (graphNode.image) {
+          graphNode.shape = 'image';
+        }
+        graphData.nodes.push(graphNode);
+      });
+    }
+
+    // copy the edges
+    if (dotData.edges) {
+      /**
+       * Convert an edge in DOT format to an edge with VisGraph format
+       * @param {Object} dotEdge
+       * @returns {Object} graphEdge
+       */
+      var convertEdge = function (dotEdge) {
+        var graphEdge = {
+          from: dotEdge.from,
+          to: dotEdge.to
+        };
+        merge(graphEdge, dotEdge.attr);
+        graphEdge.style = (dotEdge.type == '->') ? 'arrow' : 'line';
+        return graphEdge;
+      }
+
+      dotData.edges.forEach(function (dotEdge) {
+        var from, to;
+        if (dotEdge.from instanceof Object) {
+          from = dotEdge.from.nodes;
+        }
+        else {
+          from = {
+            id: dotEdge.from
+          }
+        }
+
+        if (dotEdge.to instanceof Object) {
+          to = dotEdge.to.nodes;
+        }
+        else {
+          to = {
+            id: dotEdge.to
+          }
+        }
+
+        if (dotEdge.from instanceof Object && dotEdge.from.edges) {
+          dotEdge.from.edges.forEach(function (subEdge) {
+            var graphEdge = convertEdge(subEdge);
+            graphData.edges.push(graphEdge);
+          });
+        }
+
+        forEach2(from, to, function (from, to) {
+          var subEdge = createEdge(graphData, from.id, to.id, dotEdge.type, dotEdge.attr);
+          var graphEdge = convertEdge(subEdge);
+          graphData.edges.push(graphEdge);
+        });
+
+        if (dotEdge.to instanceof Object && dotEdge.to.edges) {
+          dotEdge.to.edges.forEach(function (subEdge) {
+            var graphEdge = convertEdge(subEdge);
+            graphData.edges.push(graphEdge);
+          });
+        }
+      });
+    }
+
+    // copy the options
+    if (dotData.attr) {
+      graphData.options = dotData.attr;
+    }
+
+    return graphData;
+  }
+
+  // exports
+  exports.parseDOT = parseDOT;
+  exports.DOTToGraph = DOTToGraph;
+
+
+/***/ },
+/* 42 */
+/***/ function(module, exports, __webpack_require__) {
+
+  
+  function parseGephi(gephiJSON, options) {
+    var edges = [];
+    var nodes = [];
+    this.options = {
+      edges: {
+        inheritColor: true
+      },
+      nodes: {
+        allowedToMove: false,
+        parseColor: false
+      }
+    };
+
+    if (options !== undefined) {
+      this.options.nodes['allowedToMove'] = options.allowedToMove | false;
+      this.options.nodes['parseColor']    = options.parseColor    | false;
+      this.options.edges['inheritColor']  = options.inheritColor  | true;
+    }
+
+    var gEdges = gephiJSON.edges;
+    var gNodes = gephiJSON.nodes;
+    for (var i = 0; i < gEdges.length; i++) {
+      var edge = {};
+      var gEdge = gEdges[i];
+      edge['id'] = gEdge.id;
+      edge['from'] = gEdge.source;
+      edge['to'] = gEdge.target;
+      edge['attributes'] = gEdge.attributes;
+  //    edge['value'] = gEdge.attributes !== undefined ? gEdge.attributes.Weight : undefined;
+  //    edge['width'] = edge['value'] !== undefined ? undefined : edgegEdge.size;
+      edge['color'] = gEdge.color;
+      edge['inheritColor'] = edge['color'] !== undefined ? false : this.options.inheritColor;
+      edges.push(edge);
+    }
+
+    for (var i = 0; i < gNodes.length; i++) {
+      var node = {};
+      var gNode = gNodes[i];
+      node['id'] = gNode.id;
+      node['attributes'] = gNode.attributes;
+      node['x'] = gNode.x;
+      node['y'] = gNode.y;
+      node['label'] = gNode.label;
+      if (this.options.nodes.parseColor == true) {
+        node['color'] = gNode.color;
+      }
+      else {
+        node['color'] = gNode.color !== undefined ? {background:gNode.color, border:gNode.color} : undefined;
+      }
+      node['radius'] = gNode.size;
+      node['allowedToMoveX'] = this.options.nodes.allowedToMove;
+      node['allowedToMoveY'] = this.options.nodes.allowedToMove;
+      nodes.push(node);
+    }
+
+    return {nodes:nodes, edges:edges};
+  }
+
+  exports.parseGephi = parseGephi;
+
+/***/ },
+/* 43 */
+/***/ function(module, exports, __webpack_require__) {
+
+  // first check if moment.js is already loaded in the browser window, if so,
+  // use this instance. Else, load via commonjs.
+  module.exports = (typeof window !== 'undefined') && window['moment'] || __webpack_require__(58);
+
+
+/***/ },
+/* 44 */
+/***/ function(module, exports, __webpack_require__) {
+
+  // Only load hammer.js when in a browser environment
+  // (loading hammer.js in a node.js environment gives errors)
+  if (typeof window !== 'undefined') {
+    module.exports = window['Hammer'] || __webpack_require__(59);
+  }
+  else {
+    module.exports = function () {
+      throw Error('hammer.js is only available in a browser, not in node.js.');
+    }
+  }
+
+
+/***/ },
+/* 45 */
+/***/ function(module, exports, __webpack_require__) {
+
   var util = __webpack_require__(1);
 
   /**
@@ -20882,1082 +21950,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 41 */
-/***/ function(module, exports, __webpack_require__) {
-
-  /**
-   * Popup is a class to create a popup window with some text
-   * @param {Element}  container     The container object.
-   * @param {Number} [x]
-   * @param {Number} [y]
-   * @param {String} [text]
-   * @param {Object} [style]     An object containing borderColor,
-   *                             backgroundColor, etc.
-   */
-  function Popup(container, x, y, text, style) {
-    if (container) {
-      this.container = container;
-    }
-    else {
-      this.container = document.body;
-    }
-
-    // x, y and text are optional, see if a style object was passed in their place
-    if (style === undefined) {
-      if (typeof x === "object") {
-        style = x;
-        x = undefined;
-      } else if (typeof text === "object") {
-        style = text;
-        text = undefined;
-      } else {
-        // for backwards compatibility, in case clients other than Network are creating Popup directly
-        style = {
-          fontColor: 'black',
-          fontSize: 14, // px
-          fontFace: 'verdana',
-          color: {
-            border: '#666',
-            background: '#FFFFC6'
-          }
-        }
-      }
-    }
-
-    this.x = 0;
-    this.y = 0;
-    this.padding = 5;
-
-    if (x !== undefined && y !== undefined ) {
-      this.setPosition(x, y);
-    }
-    if (text !== undefined) {
-      this.setText(text);
-    }
-
-    // create the frame
-    this.frame = document.createElement("div");
-    var styleAttr = this.frame.style;
-    styleAttr.position = "absolute";
-    styleAttr.visibility = "hidden";
-    styleAttr.border = "1px solid " + style.color.border;
-    styleAttr.color = style.fontColor;
-    styleAttr.fontSize = style.fontSize + "px";
-    styleAttr.fontFamily = style.fontFace;
-    styleAttr.padding = this.padding + "px";
-    styleAttr.backgroundColor = style.color.background;
-    styleAttr.borderRadius = "3px";
-    styleAttr.MozBorderRadius = "3px";
-    styleAttr.WebkitBorderRadius = "3px";
-    styleAttr.boxShadow = "3px 3px 10px rgba(128, 128, 128, 0.5)";
-    styleAttr.whiteSpace = "nowrap";
-    this.container.appendChild(this.frame);
-  }
-
-  /**
-   * @param {number} x   Horizontal position of the popup window
-   * @param {number} y   Vertical position of the popup window
-   */
-  Popup.prototype.setPosition = function(x, y) {
-    this.x = parseInt(x);
-    this.y = parseInt(y);
-  };
-
-  /**
-   * Set the content for the popup window. This can be HTML code or text.
-   * @param {string | Element} content
-   */
-  Popup.prototype.setText = function(content) {
-    if (content instanceof Element) {
-      this.frame.innerHTML = '';
-      this.frame.appendChild(content);
-    }
-    else {
-      this.frame.innerHTML = content; // string containing text or HTML
-    }
-  };
-
-  /**
-   * Show the popup window
-   * @param {boolean} show    Optional. Show or hide the window
-   */
-  Popup.prototype.show = function (show) {
-    if (show === undefined) {
-      show = true;
-    }
-
-    if (show) {
-      var height = this.frame.clientHeight;
-      var width =  this.frame.clientWidth;
-      var maxHeight = this.frame.parentNode.clientHeight;
-      var maxWidth = this.frame.parentNode.clientWidth;
-
-      var top = (this.y - height);
-      if (top + height + this.padding > maxHeight) {
-        top = maxHeight - height - this.padding;
-      }
-      if (top < this.padding) {
-        top = this.padding;
-      }
-
-      var left = this.x;
-      if (left + width + this.padding > maxWidth) {
-        left = maxWidth - width - this.padding;
-      }
-      if (left < this.padding) {
-        left = this.padding;
-      }
-
-      this.frame.style.left = left + "px";
-      this.frame.style.top = top + "px";
-      this.frame.style.visibility = "visible";
-    }
-    else {
-      this.hide();
-    }
-  };
-
-  /**
-   * Hide the popup window
-   */
-  Popup.prototype.hide = function () {
-    this.frame.style.visibility = "hidden";
-  };
-
-  module.exports = Popup;
-
-
-/***/ },
-/* 42 */
-/***/ function(module, exports, __webpack_require__) {
-
-  /**
-   * Parse a text source containing data in DOT language into a JSON object.
-   * The object contains two lists: one with nodes and one with edges.
-   *
-   * DOT language reference: http://www.graphviz.org/doc/info/lang.html
-   *
-   * @param {String} data     Text containing a graph in DOT-notation
-   * @return {Object} graph   An object containing two parameters:
-   *                          {Object[]} nodes
-   *                          {Object[]} edges
-   */
-  function parseDOT (data) {
-    dot = data;
-    return parseGraph();
-  }
-
-  // token types enumeration
-  var TOKENTYPE = {
-    NULL : 0,
-    DELIMITER : 1,
-    IDENTIFIER: 2,
-    UNKNOWN : 3
-  };
-
-  // map with all delimiters
-  var DELIMITERS = {
-    '{': true,
-    '}': true,
-    '[': true,
-    ']': true,
-    ';': true,
-    '=': true,
-    ',': true,
-
-    '->': true,
-    '--': true
-  };
-
-  var dot = '';                   // current dot file
-  var index = 0;                  // current index in dot file
-  var c = '';                     // current token character in expr
-  var token = '';                 // current token
-  var tokenType = TOKENTYPE.NULL; // type of the token
-
-  /**
-   * Get the first character from the dot file.
-   * The character is stored into the char c. If the end of the dot file is
-   * reached, the function puts an empty string in c.
-   */
-  function first() {
-    index = 0;
-    c = dot.charAt(0);
-  }
-
-  /**
-   * Get the next character from the dot file.
-   * The character is stored into the char c. If the end of the dot file is
-   * reached, the function puts an empty string in c.
-   */
-  function next() {
-    index++;
-    c = dot.charAt(index);
-  }
-
-  /**
-   * Preview the next character from the dot file.
-   * @return {String} cNext
-   */
-  function nextPreview() {
-    return dot.charAt(index + 1);
-  }
-
-  /**
-   * Test whether given character is alphabetic or numeric
-   * @param {String} c
-   * @return {Boolean} isAlphaNumeric
-   */
-  var regexAlphaNumeric = /[a-zA-Z_0-9.:#]/;
-  function isAlphaNumeric(c) {
-    return regexAlphaNumeric.test(c);
-  }
-
-  /**
-   * Merge all properties of object b into object b
-   * @param {Object} a
-   * @param {Object} b
-   * @return {Object} a
-   */
-  function merge (a, b) {
-    if (!a) {
-      a = {};
-    }
-
-    if (b) {
-      for (var name in b) {
-        if (b.hasOwnProperty(name)) {
-          a[name] = b[name];
-        }
-      }
-    }
-    return a;
-  }
-
-  /**
-   * Set a value in an object, where the provided parameter name can be a
-   * path with nested parameters. For example:
-   *
-   *     var obj = {a: 2};
-   *     setValue(obj, 'b.c', 3);     // obj = {a: 2, b: {c: 3}}
-   *
-   * @param {Object} obj
-   * @param {String} path  A parameter name or dot-separated parameter path,
-   *                      like "color.highlight.border".
-   * @param {*} value
-   */
-  function setValue(obj, path, value) {
-    var keys = path.split('.');
-    var o = obj;
-    while (keys.length) {
-      var key = keys.shift();
-      if (keys.length) {
-        // this isn't the end point
-        if (!o[key]) {
-          o[key] = {};
-        }
-        o = o[key];
-      }
-      else {
-        // this is the end point
-        o[key] = value;
-      }
-    }
-  }
-
-  /**
-   * Add a node to a graph object. If there is already a node with
-   * the same id, their attributes will be merged.
-   * @param {Object} graph
-   * @param {Object} node
-   */
-  function addNode(graph, node) {
-    var i, len;
-    var current = null;
-
-    // find root graph (in case of subgraph)
-    var graphs = [graph]; // list with all graphs from current graph to root graph
-    var root = graph;
-    while (root.parent) {
-      graphs.push(root.parent);
-      root = root.parent;
-    }
-
-    // find existing node (at root level) by its id
-    if (root.nodes) {
-      for (i = 0, len = root.nodes.length; i < len; i++) {
-        if (node.id === root.nodes[i].id) {
-          current = root.nodes[i];
-          break;
-        }
-      }
-    }
-
-    if (!current) {
-      // this is a new node
-      current = {
-        id: node.id
-      };
-      if (graph.node) {
-        // clone default attributes
-        current.attr = merge(current.attr, graph.node);
-      }
-    }
-
-    // add node to this (sub)graph and all its parent graphs
-    for (i = graphs.length - 1; i >= 0; i--) {
-      var g = graphs[i];
-
-      if (!g.nodes) {
-        g.nodes = [];
-      }
-      if (g.nodes.indexOf(current) == -1) {
-        g.nodes.push(current);
-      }
-    }
-
-    // merge attributes
-    if (node.attr) {
-      current.attr = merge(current.attr, node.attr);
-    }
-  }
-
-  /**
-   * Add an edge to a graph object
-   * @param {Object} graph
-   * @param {Object} edge
-   */
-  function addEdge(graph, edge) {
-    if (!graph.edges) {
-      graph.edges = [];
-    }
-    graph.edges.push(edge);
-    if (graph.edge) {
-      var attr = merge({}, graph.edge);     // clone default attributes
-      edge.attr = merge(attr, edge.attr); // merge attributes
-    }
-  }
-
-  /**
-   * Create an edge to a graph object
-   * @param {Object} graph
-   * @param {String | Number | Object} from
-   * @param {String | Number | Object} to
-   * @param {String} type
-   * @param {Object | null} attr
-   * @return {Object} edge
-   */
-  function createEdge(graph, from, to, type, attr) {
-    var edge = {
-      from: from,
-      to: to,
-      type: type
-    };
-
-    if (graph.edge) {
-      edge.attr = merge({}, graph.edge);  // clone default attributes
-    }
-    edge.attr = merge(edge.attr || {}, attr); // merge attributes
-
-    return edge;
-  }
-
-  /**
-   * Get next token in the current dot file.
-   * The token and token type are available as token and tokenType
-   */
-  function getToken() {
-    tokenType = TOKENTYPE.NULL;
-    token = '';
-
-    // skip over whitespaces
-    while (c == ' ' || c == '\t' || c == '\n' || c == '\r') {  // space, tab, enter
-      next();
-    }
-
-    do {
-      var isComment = false;
-
-      // skip comment
-      if (c == '#') {
-        // find the previous non-space character
-        var i = index - 1;
-        while (dot.charAt(i) == ' ' || dot.charAt(i) == '\t') {
-          i--;
-        }
-        if (dot.charAt(i) == '\n' || dot.charAt(i) == '') {
-          // the # is at the start of a line, this is indeed a line comment
-          while (c != '' && c != '\n') {
-            next();
-          }
-          isComment = true;
-        }
-      }
-      if (c == '/' && nextPreview() == '/') {
-        // skip line comment
-        while (c != '' && c != '\n') {
-          next();
-        }
-        isComment = true;
-      }
-      if (c == '/' && nextPreview() == '*') {
-        // skip block comment
-        while (c != '') {
-          if (c == '*' && nextPreview() == '/') {
-            // end of block comment found. skip these last two characters
-            next();
-            next();
-            break;
-          }
-          else {
-            next();
-          }
-        }
-        isComment = true;
-      }
-
-      // skip over whitespaces
-      while (c == ' ' || c == '\t' || c == '\n' || c == '\r') {  // space, tab, enter
-        next();
-      }
-    }
-    while (isComment);
-
-    // check for end of dot file
-    if (c == '') {
-      // token is still empty
-      tokenType = TOKENTYPE.DELIMITER;
-      return;
-    }
-
-    // check for delimiters consisting of 2 characters
-    var c2 = c + nextPreview();
-    if (DELIMITERS[c2]) {
-      tokenType = TOKENTYPE.DELIMITER;
-      token = c2;
-      next();
-      next();
-      return;
-    }
-
-    // check for delimiters consisting of 1 character
-    if (DELIMITERS[c]) {
-      tokenType = TOKENTYPE.DELIMITER;
-      token = c;
-      next();
-      return;
-    }
-
-    // check for an identifier (number or string)
-    // TODO: more precise parsing of numbers/strings (and the port separator ':')
-    if (isAlphaNumeric(c) || c == '-') {
-      token += c;
-      next();
-
-      while (isAlphaNumeric(c)) {
-        token += c;
-        next();
-      }
-      if (token == 'false') {
-        token = false;   // convert to boolean
-      }
-      else if (token == 'true') {
-        token = true;   // convert to boolean
-      }
-      else if (!isNaN(Number(token))) {
-        token = Number(token); // convert to number
-      }
-      tokenType = TOKENTYPE.IDENTIFIER;
-      return;
-    }
-
-    // check for a string enclosed by double quotes
-    if (c == '"') {
-      next();
-      while (c != '' && (c != '"' || (c == '"' && nextPreview() == '"'))) {
-        token += c;
-        if (c == '"') { // skip the escape character
-          next();
-        }
-        next();
-      }
-      if (c != '"') {
-        throw newSyntaxError('End of string " expected');
-      }
-      next();
-      tokenType = TOKENTYPE.IDENTIFIER;
-      return;
-    }
-
-    // something unknown is found, wrong characters, a syntax error
-    tokenType = TOKENTYPE.UNKNOWN;
-    while (c != '') {
-      token += c;
-      next();
-    }
-    throw new SyntaxError('Syntax error in part "' + chop(token, 30) + '"');
-  }
-
-  /**
-   * Parse a graph.
-   * @returns {Object} graph
-   */
-  function parseGraph() {
-    var graph = {};
-
-    first();
-    getToken();
-
-    // optional strict keyword
-    if (token == 'strict') {
-      graph.strict = true;
-      getToken();
-    }
-
-    // graph or digraph keyword
-    if (token == 'graph' || token == 'digraph') {
-      graph.type = token;
-      getToken();
-    }
-
-    // optional graph id
-    if (tokenType == TOKENTYPE.IDENTIFIER) {
-      graph.id = token;
-      getToken();
-    }
-
-    // open angle bracket
-    if (token != '{') {
-      throw newSyntaxError('Angle bracket { expected');
-    }
-    getToken();
-
-    // statements
-    parseStatements(graph);
-
-    // close angle bracket
-    if (token != '}') {
-      throw newSyntaxError('Angle bracket } expected');
-    }
-    getToken();
-
-    // end of file
-    if (token !== '') {
-      throw newSyntaxError('End of file expected');
-    }
-    getToken();
-
-    // remove temporary default properties
-    delete graph.node;
-    delete graph.edge;
-    delete graph.graph;
-
-    return graph;
-  }
-
-  /**
-   * Parse a list with statements.
-   * @param {Object} graph
-   */
-  function parseStatements (graph) {
-    while (token !== '' && token != '}') {
-      parseStatement(graph);
-      if (token == ';') {
-        getToken();
-      }
-    }
-  }
-
-  /**
-   * Parse a single statement. Can be a an attribute statement, node
-   * statement, a series of node statements and edge statements, or a
-   * parameter.
-   * @param {Object} graph
-   */
-  function parseStatement(graph) {
-    // parse subgraph
-    var subgraph = parseSubgraph(graph);
-    if (subgraph) {
-      // edge statements
-      parseEdge(graph, subgraph);
-
-      return;
-    }
-
-    // parse an attribute statement
-    var attr = parseAttributeStatement(graph);
-    if (attr) {
-      return;
-    }
-
-    // parse node
-    if (tokenType != TOKENTYPE.IDENTIFIER) {
-      throw newSyntaxError('Identifier expected');
-    }
-    var id = token; // id can be a string or a number
-    getToken();
-
-    if (token == '=') {
-      // id statement
-      getToken();
-      if (tokenType != TOKENTYPE.IDENTIFIER) {
-        throw newSyntaxError('Identifier expected');
-      }
-      graph[id] = token;
-      getToken();
-      // TODO: implement comma separated list with "a_list: ID=ID [','] [a_list] "
-    }
-    else {
-      parseNodeStatement(graph, id);
-    }
-  }
-
-  /**
-   * Parse a subgraph
-   * @param {Object} graph    parent graph object
-   * @return {Object | null} subgraph
-   */
-  function parseSubgraph (graph) {
-    var subgraph = null;
-
-    // optional subgraph keyword
-    if (token == 'subgraph') {
-      subgraph = {};
-      subgraph.type = 'subgraph';
-      getToken();
-
-      // optional graph id
-      if (tokenType == TOKENTYPE.IDENTIFIER) {
-        subgraph.id = token;
-        getToken();
-      }
-    }
-
-    // open angle bracket
-    if (token == '{') {
-      getToken();
-
-      if (!subgraph) {
-        subgraph = {};
-      }
-      subgraph.parent = graph;
-      subgraph.node = graph.node;
-      subgraph.edge = graph.edge;
-      subgraph.graph = graph.graph;
-
-      // statements
-      parseStatements(subgraph);
-
-      // close angle bracket
-      if (token != '}') {
-        throw newSyntaxError('Angle bracket } expected');
-      }
-      getToken();
-
-      // remove temporary default properties
-      delete subgraph.node;
-      delete subgraph.edge;
-      delete subgraph.graph;
-      delete subgraph.parent;
-
-      // register at the parent graph
-      if (!graph.subgraphs) {
-        graph.subgraphs = [];
-      }
-      graph.subgraphs.push(subgraph);
-    }
-
-    return subgraph;
-  }
-
-  /**
-   * parse an attribute statement like "node [shape=circle fontSize=16]".
-   * Available keywords are 'node', 'edge', 'graph'.
-   * The previous list with default attributes will be replaced
-   * @param {Object} graph
-   * @returns {String | null} keyword Returns the name of the parsed attribute
-   *                                  (node, edge, graph), or null if nothing
-   *                                  is parsed.
-   */
-  function parseAttributeStatement (graph) {
-    // attribute statements
-    if (token == 'node') {
-      getToken();
-
-      // node attributes
-      graph.node = parseAttributeList();
-      return 'node';
-    }
-    else if (token == 'edge') {
-      getToken();
-
-      // edge attributes
-      graph.edge = parseAttributeList();
-      return 'edge';
-    }
-    else if (token == 'graph') {
-      getToken();
-
-      // graph attributes
-      graph.graph = parseAttributeList();
-      return 'graph';
-    }
-
-    return null;
-  }
-
-  /**
-   * parse a node statement
-   * @param {Object} graph
-   * @param {String | Number} id
-   */
-  function parseNodeStatement(graph, id) {
-    // node statement
-    var node = {
-      id: id
-    };
-    var attr = parseAttributeList();
-    if (attr) {
-      node.attr = attr;
-    }
-    addNode(graph, node);
-
-    // edge statements
-    parseEdge(graph, id);
-  }
-
-  /**
-   * Parse an edge or a series of edges
-   * @param {Object} graph
-   * @param {String | Number} from        Id of the from node
-   */
-  function parseEdge(graph, from) {
-    while (token == '->' || token == '--') {
-      var to;
-      var type = token;
-      getToken();
-
-      var subgraph = parseSubgraph(graph);
-      if (subgraph) {
-        to = subgraph;
-      }
-      else {
-        if (tokenType != TOKENTYPE.IDENTIFIER) {
-          throw newSyntaxError('Identifier or subgraph expected');
-        }
-        to = token;
-        addNode(graph, {
-          id: to
-        });
-        getToken();
-      }
-
-      // parse edge attributes
-      var attr = parseAttributeList();
-
-      // create edge
-      var edge = createEdge(graph, from, to, type, attr);
-      addEdge(graph, edge);
-
-      from = to;
-    }
-  }
-
-  /**
-   * Parse a set with attributes,
-   * for example [label="1.000", shape=solid]
-   * @return {Object | null} attr
-   */
-  function parseAttributeList() {
-    var attr = null;
-
-    while (token == '[') {
-      getToken();
-      attr = {};
-      while (token !== '' && token != ']') {
-        if (tokenType != TOKENTYPE.IDENTIFIER) {
-          throw newSyntaxError('Attribute name expected');
-        }
-        var name = token;
-
-        getToken();
-        if (token != '=') {
-          throw newSyntaxError('Equal sign = expected');
-        }
-        getToken();
-
-        if (tokenType != TOKENTYPE.IDENTIFIER) {
-          throw newSyntaxError('Attribute value expected');
-        }
-        var value = token;
-        setValue(attr, name, value); // name can be a path
-
-        getToken();
-        if (token ==',') {
-          getToken();
-        }
-      }
-
-      if (token != ']') {
-        throw newSyntaxError('Bracket ] expected');
-      }
-      getToken();
-    }
-
-    return attr;
-  }
-
-  /**
-   * Create a syntax error with extra information on current token and index.
-   * @param {String} message
-   * @returns {SyntaxError} err
-   */
-  function newSyntaxError(message) {
-    return new SyntaxError(message + ', got "' + chop(token, 30) + '" (char ' + index + ')');
-  }
-
-  /**
-   * Chop off text after a maximum length
-   * @param {String} text
-   * @param {Number} maxLength
-   * @returns {String}
-   */
-  function chop (text, maxLength) {
-    return (text.length <= maxLength) ? text : (text.substr(0, 27) + '...');
-  }
-
-  /**
-   * Execute a function fn for each pair of elements in two arrays
-   * @param {Array | *} array1
-   * @param {Array | *} array2
-   * @param {function} fn
-   */
-  function forEach2(array1, array2, fn) {
-    if (Array.isArray(array1)) {
-      array1.forEach(function (elem1) {
-        if (Array.isArray(array2)) {
-          array2.forEach(function (elem2)  {
-            fn(elem1, elem2);
-          });
-        }
-        else {
-          fn(elem1, array2);
-        }
-      });
-    }
-    else {
-      if (Array.isArray(array2)) {
-        array2.forEach(function (elem2)  {
-          fn(array1, elem2);
-        });
-      }
-      else {
-        fn(array1, array2);
-      }
-    }
-  }
-
-  /**
-   * Convert a string containing a graph in DOT language into a map containing
-   * with nodes and edges in the format of graph.
-   * @param {String} data         Text containing a graph in DOT-notation
-   * @return {Object} graphData
-   */
-  function DOTToGraph (data) {
-    // parse the DOT file
-    var dotData = parseDOT(data);
-    var graphData = {
-      nodes: [],
-      edges: [],
-      options: {}
-    };
-
-    // copy the nodes
-    if (dotData.nodes) {
-      dotData.nodes.forEach(function (dotNode) {
-        var graphNode = {
-          id: dotNode.id,
-          label: String(dotNode.label || dotNode.id)
-        };
-        merge(graphNode, dotNode.attr);
-        if (graphNode.image) {
-          graphNode.shape = 'image';
-        }
-        graphData.nodes.push(graphNode);
-      });
-    }
-
-    // copy the edges
-    if (dotData.edges) {
-      /**
-       * Convert an edge in DOT format to an edge with VisGraph format
-       * @param {Object} dotEdge
-       * @returns {Object} graphEdge
-       */
-      var convertEdge = function (dotEdge) {
-        var graphEdge = {
-          from: dotEdge.from,
-          to: dotEdge.to
-        };
-        merge(graphEdge, dotEdge.attr);
-        graphEdge.style = (dotEdge.type == '->') ? 'arrow' : 'line';
-        return graphEdge;
-      }
-
-      dotData.edges.forEach(function (dotEdge) {
-        var from, to;
-        if (dotEdge.from instanceof Object) {
-          from = dotEdge.from.nodes;
-        }
-        else {
-          from = {
-            id: dotEdge.from
-          }
-        }
-
-        if (dotEdge.to instanceof Object) {
-          to = dotEdge.to.nodes;
-        }
-        else {
-          to = {
-            id: dotEdge.to
-          }
-        }
-
-        if (dotEdge.from instanceof Object && dotEdge.from.edges) {
-          dotEdge.from.edges.forEach(function (subEdge) {
-            var graphEdge = convertEdge(subEdge);
-            graphData.edges.push(graphEdge);
-          });
-        }
-
-        forEach2(from, to, function (from, to) {
-          var subEdge = createEdge(graphData, from.id, to.id, dotEdge.type, dotEdge.attr);
-          var graphEdge = convertEdge(subEdge);
-          graphData.edges.push(graphEdge);
-        });
-
-        if (dotEdge.to instanceof Object && dotEdge.to.edges) {
-          dotEdge.to.edges.forEach(function (subEdge) {
-            var graphEdge = convertEdge(subEdge);
-            graphData.edges.push(graphEdge);
-          });
-        }
-      });
-    }
-
-    // copy the options
-    if (dotData.attr) {
-      graphData.options = dotData.attr;
-    }
-
-    return graphData;
-  }
-
-  // exports
-  exports.parseDOT = parseDOT;
-  exports.DOTToGraph = DOTToGraph;
-
-
-/***/ },
-/* 43 */
-/***/ function(module, exports, __webpack_require__) {
-
-  
-  function parseGephi(gephiJSON, options) {
-    var edges = [];
-    var nodes = [];
-    this.options = {
-      edges: {
-        inheritColor: true
-      },
-      nodes: {
-        allowedToMove: false,
-        parseColor: false
-      }
-    };
-
-    if (options !== undefined) {
-      this.options.nodes['allowedToMove'] = options.allowedToMove | false;
-      this.options.nodes['parseColor']    = options.parseColor    | false;
-      this.options.edges['inheritColor']  = options.inheritColor  | true;
-    }
-
-    var gEdges = gephiJSON.edges;
-    var gNodes = gephiJSON.nodes;
-    for (var i = 0; i < gEdges.length; i++) {
-      var edge = {};
-      var gEdge = gEdges[i];
-      edge['id'] = gEdge.id;
-      edge['from'] = gEdge.source;
-      edge['to'] = gEdge.target;
-      edge['attributes'] = gEdge.attributes;
-  //    edge['value'] = gEdge.attributes !== undefined ? gEdge.attributes.Weight : undefined;
-  //    edge['width'] = edge['value'] !== undefined ? undefined : edgegEdge.size;
-      edge['color'] = gEdge.color;
-      edge['inheritColor'] = edge['color'] !== undefined ? false : this.options.inheritColor;
-      edges.push(edge);
-    }
-
-    for (var i = 0; i < gNodes.length; i++) {
-      var node = {};
-      var gNode = gNodes[i];
-      node['id'] = gNode.id;
-      node['attributes'] = gNode.attributes;
-      node['x'] = gNode.x;
-      node['y'] = gNode.y;
-      node['label'] = gNode.label;
-      if (this.options.nodes.parseColor == true) {
-        node['color'] = gNode.color;
-      }
-      else {
-        node['color'] = gNode.color !== undefined ? {background:gNode.color, border:gNode.color} : undefined;
-      }
-      node['radius'] = gNode.size;
-      node['allowedToMoveX'] = this.options.nodes.allowedToMove;
-      node['allowedToMoveY'] = this.options.nodes.allowedToMove;
-      nodes.push(node);
-    }
-
-    return {nodes:nodes, edges:edges};
-  }
-
-  exports.parseGephi = parseGephi;
-
-/***/ },
-/* 44 */
-/***/ function(module, exports, __webpack_require__) {
-
-  // first check if moment.js is already loaded in the browser window, if so,
-  // use this instance. Else, load via commonjs.
-  module.exports = (typeof window !== 'undefined') && window['moment'] || __webpack_require__(58);
-
-
-/***/ },
-/* 45 */
-/***/ function(module, exports, __webpack_require__) {
-
-  // Only load hammer.js when in a browser environment
-  // (loading hammer.js in a node.js environment gives errors)
-  if (typeof window !== 'undefined') {
-    module.exports = window['Hammer'] || __webpack_require__(59);
-  }
-  else {
-    module.exports = function () {
-      throw Error('hammer.js is only available in a browser, not in node.js.');
-    }
-  }
-
-
-/***/ },
 /* 46 */
 /***/ function(module, exports, __webpack_require__) {
 
   var Emitter = __webpack_require__(56);
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
   var util = __webpack_require__(1);
-  var DataSet = __webpack_require__(3);
-  var DataView = __webpack_require__(4);
+  var DataSet = __webpack_require__(5);
+  var DataView = __webpack_require__(3);
   var Range = __webpack_require__(17);
   var ItemSet = __webpack_require__(32);
   var Activator = __webpack_require__(53);
@@ -22049,6 +22049,7 @@ return /******/ (function(modules) { // webpackBootstrap
     this.on('dragstart', this._onDragStart.bind(this));
     this.on('drag', this._onDrag.bind(this));
     this.on('mousewheel', this._onScroll.bind(this));
+    this.on('DOMMouseScroll', this._onScroll.bind(this));
 
     var me = this;
     this.on('change', function (properties) {
@@ -22783,7 +22784,7 @@ return /******/ (function(modules) { // webpackBootstrap
   Core.prototype._onScroll = function (event) {
     if (this.options.zommable) return;
   	
-    var delta = -event.deltaY;
+    var delta = -event.deltaY || -(event.detail * 3);//inverted 'cause code is based on drag
 
     var oldScrollTop = this._getScrollTop();
     var newScrollTop = this._setScrollTop(this.props.scrollTop + delta);
@@ -22842,7 +22843,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 47 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
 
   /**
    * Fake a hammer.js gesture. Event can be a ScrollEvent or MouseMoveEvent
@@ -23609,7 +23610,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
   var keycharm = __webpack_require__(57);
   var Emitter = __webpack_require__(56);
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
   var util = __webpack_require__(1);
 
   /**
@@ -29623,9 +29624,9 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var RepulsionMixin = __webpack_require__(68);
+  var RepulsionMixin = __webpack_require__(67);
   var HierarchialRepulsionMixin = __webpack_require__(69);
-  var BarnesHutMixin = __webpack_require__(70);
+  var BarnesHutMixin = __webpack_require__(68);
 
   /**
    * Toggling barnes Hut calculation on and off.
@@ -31493,7 +31494,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Node = __webpack_require__(40);
+  var Node = __webpack_require__(45);
 
   /**
    * Creation of the SectorMixin var.
@@ -32051,7 +32052,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 63 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Node = __webpack_require__(40);
+  var Node = __webpack_require__(45);
 
   /**
    * This function can be called from the _doInAllSectors function
@@ -32766,7 +32767,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Node = __webpack_require__(40);
+  var Node = __webpack_require__(45);
   var Edge = __webpack_require__(37);
 
   /**
@@ -33463,7 +33464,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Hammer = __webpack_require__(45);
+  var Hammer = __webpack_require__(44);
 
   exports._cleanNavigation = function() {
     // clean hammer bindings
@@ -34047,19 +34048,6 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 67 */
 /***/ function(module, exports, __webpack_require__) {
 
-  function webpackContext(req) {
-  	throw new Error("Cannot find module '" + req + "'.");
-  }
-  webpackContext.keys = function() { return []; };
-  webpackContext.resolve = webpackContext;
-  module.exports = webpackContext;
-  webpackContext.id = 67;
-
-
-/***/ },
-/* 68 */
-/***/ function(module, exports, __webpack_require__) {
-
   /**
    * Calculate the forces the nodes apply on each other based on a repulsion field.
    * This field is linearly approximated.
@@ -34127,166 +34115,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 69 */
-/***/ function(module, exports, __webpack_require__) {
-
-  /**
-   * Calculate the forces the nodes apply on eachother based on a repulsion field.
-   * This field is linearly approximated.
-   *
-   * @private
-   */
-  exports._calculateNodeForces = function () {
-    var dx, dy, distance, fx, fy,
-      repulsingForce, node1, node2, i, j;
-
-    var nodes = this.calculationNodes;
-    var nodeIndices = this.calculationNodeIndices;
-
-    // repulsing forces between nodes
-    var nodeDistance = this.constants.physics.hierarchicalRepulsion.nodeDistance;
-
-    // we loop from i over all but the last entree in the array
-    // j loops from i+1 to the last. This way we do not double count any of the indices, nor i == j
-    for (i = 0; i < nodeIndices.length - 1; i++) {
-      node1 = nodes[nodeIndices[i]];
-      for (j = i + 1; j < nodeIndices.length; j++) {
-        node2 = nodes[nodeIndices[j]];
-
-        // nodes only affect nodes on their level
-        if (node1.level == node2.level) {
-
-          dx = node2.x - node1.x;
-          dy = node2.y - node1.y;
-          distance = Math.sqrt(dx * dx + dy * dy);
-
-
-          var steepness = 0.05;
-          if (distance < nodeDistance) {
-            repulsingForce = -Math.pow(steepness*distance,2) + Math.pow(steepness*nodeDistance,2);
-          }
-          else {
-            repulsingForce = 0;
-          }
-            // normalize force with
-            if (distance == 0) {
-              distance = 0.01;
-            }
-            else {
-              repulsingForce = repulsingForce / distance;
-            }
-            fx = dx * repulsingForce;
-            fy = dy * repulsingForce;
-
-            node1.fx -= fx;
-            node1.fy -= fy;
-            node2.fx += fx;
-            node2.fy += fy;
-        }
-      }
-    }
-  };
-
-
-  /**
-   * this function calculates the effects of the springs in the case of unsmooth curves.
-   *
-   * @private
-   */
-  exports._calculateHierarchicalSpringForces = function () {
-    var edgeLength, edge, edgeId;
-    var dx, dy, fx, fy, springForce, distance;
-    var edges = this.edges;
-
-    var nodes = this.calculationNodes;
-    var nodeIndices = this.calculationNodeIndices;
-
-
-    for (var i = 0; i < nodeIndices.length; i++) {
-      var node1 = nodes[nodeIndices[i]];
-      node1.springFx = 0;
-      node1.springFy = 0;
-    }
-
-
-    // forces caused by the edges, modelled as springs
-    for (edgeId in edges) {
-      if (edges.hasOwnProperty(edgeId)) {
-        edge = edges[edgeId];
-        if (edge.connected) {
-          // only calculate forces if nodes are in the same sector
-          if (this.nodes.hasOwnProperty(edge.toId) && this.nodes.hasOwnProperty(edge.fromId)) {
-            edgeLength = edge.physics.springLength;
-            // this implies that the edges between big clusters are longer
-            edgeLength += (edge.to.clusterSize + edge.from.clusterSize - 2) * this.constants.clustering.edgeGrowth;
-
-            dx = (edge.from.x - edge.to.x);
-            dy = (edge.from.y - edge.to.y);
-            distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance == 0) {
-              distance = 0.01;
-            }
-
-            // the 1/distance is so the fx and fy can be calculated without sine or cosine.
-            springForce = this.constants.physics.springConstant * (edgeLength - distance) / distance;
-
-            fx = dx * springForce;
-            fy = dy * springForce;
-
-
-
-            if (edge.to.level != edge.from.level) {
-              edge.to.springFx -= fx;
-              edge.to.springFy -= fy;
-              edge.from.springFx += fx;
-              edge.from.springFy += fy;
-            }
-            else {
-              var factor = 0.5;
-              edge.to.fx -= factor*fx;
-              edge.to.fy -= factor*fy;
-              edge.from.fx += factor*fx;
-              edge.from.fy += factor*fy;
-            }
-          }
-        }
-      }
-    }
-
-    // normalize spring forces
-    var springForce = 1;
-    var springFx, springFy;
-    for (i = 0; i < nodeIndices.length; i++) {
-      var node = nodes[nodeIndices[i]];
-      springFx = Math.min(springForce,Math.max(-springForce,node.springFx));
-      springFy = Math.min(springForce,Math.max(-springForce,node.springFy));
-
-      node.fx += springFx;
-      node.fy += springFy;
-    }
-
-    // retain energy balance
-    var totalFx = 0;
-    var totalFy = 0;
-    for (i = 0; i < nodeIndices.length; i++) {
-      var node = nodes[nodeIndices[i]];
-      totalFx += node.fx;
-      totalFy += node.fy;
-    }
-    var correctionFx = totalFx / nodeIndices.length;
-    var correctionFy = totalFy / nodeIndices.length;
-
-    for (i = 0; i < nodeIndices.length; i++) {
-      var node = nodes[nodeIndices[i]];
-      node.fx -= correctionFx;
-      node.fy -= correctionFy;
-    }
-
-  };
-
-/***/ },
-/* 70 */
+/* 68 */
 /***/ function(module, exports, __webpack_require__) {
 
   /**
@@ -34688,6 +34517,178 @@ return /******/ (function(modules) { // webpackBootstrap
      }
      */
   };
+
+
+/***/ },
+/* 69 */
+/***/ function(module, exports, __webpack_require__) {
+
+  /**
+   * Calculate the forces the nodes apply on eachother based on a repulsion field.
+   * This field is linearly approximated.
+   *
+   * @private
+   */
+  exports._calculateNodeForces = function () {
+    var dx, dy, distance, fx, fy,
+      repulsingForce, node1, node2, i, j;
+
+    var nodes = this.calculationNodes;
+    var nodeIndices = this.calculationNodeIndices;
+
+    // repulsing forces between nodes
+    var nodeDistance = this.constants.physics.hierarchicalRepulsion.nodeDistance;
+
+    // we loop from i over all but the last entree in the array
+    // j loops from i+1 to the last. This way we do not double count any of the indices, nor i == j
+    for (i = 0; i < nodeIndices.length - 1; i++) {
+      node1 = nodes[nodeIndices[i]];
+      for (j = i + 1; j < nodeIndices.length; j++) {
+        node2 = nodes[nodeIndices[j]];
+
+        // nodes only affect nodes on their level
+        if (node1.level == node2.level) {
+
+          dx = node2.x - node1.x;
+          dy = node2.y - node1.y;
+          distance = Math.sqrt(dx * dx + dy * dy);
+
+
+          var steepness = 0.05;
+          if (distance < nodeDistance) {
+            repulsingForce = -Math.pow(steepness*distance,2) + Math.pow(steepness*nodeDistance,2);
+          }
+          else {
+            repulsingForce = 0;
+          }
+            // normalize force with
+            if (distance == 0) {
+              distance = 0.01;
+            }
+            else {
+              repulsingForce = repulsingForce / distance;
+            }
+            fx = dx * repulsingForce;
+            fy = dy * repulsingForce;
+
+            node1.fx -= fx;
+            node1.fy -= fy;
+            node2.fx += fx;
+            node2.fy += fy;
+        }
+      }
+    }
+  };
+
+
+  /**
+   * this function calculates the effects of the springs in the case of unsmooth curves.
+   *
+   * @private
+   */
+  exports._calculateHierarchicalSpringForces = function () {
+    var edgeLength, edge, edgeId;
+    var dx, dy, fx, fy, springForce, distance;
+    var edges = this.edges;
+
+    var nodes = this.calculationNodes;
+    var nodeIndices = this.calculationNodeIndices;
+
+
+    for (var i = 0; i < nodeIndices.length; i++) {
+      var node1 = nodes[nodeIndices[i]];
+      node1.springFx = 0;
+      node1.springFy = 0;
+    }
+
+
+    // forces caused by the edges, modelled as springs
+    for (edgeId in edges) {
+      if (edges.hasOwnProperty(edgeId)) {
+        edge = edges[edgeId];
+        if (edge.connected) {
+          // only calculate forces if nodes are in the same sector
+          if (this.nodes.hasOwnProperty(edge.toId) && this.nodes.hasOwnProperty(edge.fromId)) {
+            edgeLength = edge.physics.springLength;
+            // this implies that the edges between big clusters are longer
+            edgeLength += (edge.to.clusterSize + edge.from.clusterSize - 2) * this.constants.clustering.edgeGrowth;
+
+            dx = (edge.from.x - edge.to.x);
+            dy = (edge.from.y - edge.to.y);
+            distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance == 0) {
+              distance = 0.01;
+            }
+
+            // the 1/distance is so the fx and fy can be calculated without sine or cosine.
+            springForce = this.constants.physics.springConstant * (edgeLength - distance) / distance;
+
+            fx = dx * springForce;
+            fy = dy * springForce;
+
+
+
+            if (edge.to.level != edge.from.level) {
+              edge.to.springFx -= fx;
+              edge.to.springFy -= fy;
+              edge.from.springFx += fx;
+              edge.from.springFy += fy;
+            }
+            else {
+              var factor = 0.5;
+              edge.to.fx -= factor*fx;
+              edge.to.fy -= factor*fy;
+              edge.from.fx += factor*fx;
+              edge.from.fy += factor*fy;
+            }
+          }
+        }
+      }
+    }
+
+    // normalize spring forces
+    var springForce = 1;
+    var springFx, springFy;
+    for (i = 0; i < nodeIndices.length; i++) {
+      var node = nodes[nodeIndices[i]];
+      springFx = Math.min(springForce,Math.max(-springForce,node.springFx));
+      springFy = Math.min(springForce,Math.max(-springForce,node.springFy));
+
+      node.fx += springFx;
+      node.fy += springFy;
+    }
+
+    // retain energy balance
+    var totalFx = 0;
+    var totalFy = 0;
+    for (i = 0; i < nodeIndices.length; i++) {
+      var node = nodes[nodeIndices[i]];
+      totalFx += node.fx;
+      totalFy += node.fy;
+    }
+    var correctionFx = totalFx / nodeIndices.length;
+    var correctionFy = totalFy / nodeIndices.length;
+
+    for (i = 0; i < nodeIndices.length; i++) {
+      var node = nodes[nodeIndices[i]];
+      node.fx -= correctionFx;
+      node.fy -= correctionFy;
+    }
+
+  };
+
+/***/ },
+/* 70 */
+/***/ function(module, exports, __webpack_require__) {
+
+  function webpackContext(req) {
+  	throw new Error("Cannot find module '" + req + "'.");
+  }
+  webpackContext.keys = function() { return []; };
+  webpackContext.resolve = webpackContext;
+  module.exports = webpackContext;
+  webpackContext.id = 70;
 
 
 /***/ },
