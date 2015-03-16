@@ -53,7 +53,8 @@
       content: 'item ' + i +
           ' <span style="color:#97B0F8;">(' + names[group] + ')</span>',
       start: start,
-      type: 'box'
+      end: start.clone().add(8, 'hours'),
+      type: 'range'
     });
   }
 
@@ -62,6 +63,11 @@
   var options = {
     groupOrder: 'content',  // groupOrder can be a property name or a sorting function
     zoomable: false,
+    editable: {
+    	updateTime: true
+    },
+    'orientation': 'top',
+	'type': 'range',
     height: '150px'
   };
 

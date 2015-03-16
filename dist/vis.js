@@ -5,7 +5,7 @@
  * A dynamic, browser-based visualization library.
  *
  * @version 3.9.1
- * @date    2015-02-23
+ * @date    2015-03-16
  *
  * @license
  * Copyright (C) 2011-2014 Almende B.V, http://almende.com
@@ -86,9 +86,9 @@ return /******/ (function(modules) { // webpackBootstrap
   exports.DOMutil = __webpack_require__(2);
 
   // data
-  exports.DataSet = __webpack_require__(5);
-  exports.DataView = __webpack_require__(3);
-  exports.Queue = __webpack_require__(4);
+  exports.DataSet = __webpack_require__(3);
+  exports.DataView = __webpack_require__(4);
+  exports.Queue = __webpack_require__(5);
 
   // Graph3d
   exports.Graph3d = __webpack_require__(6);
@@ -140,10 +140,10 @@ return /******/ (function(modules) { // webpackBootstrap
     Edge: __webpack_require__(37),
     Groups: __webpack_require__(38),
     Images: __webpack_require__(39),
-    Node: __webpack_require__(45),
-    Popup: __webpack_require__(40),
-    dotparser: __webpack_require__(41),
-    gephiParser: __webpack_require__(42)
+    Node: __webpack_require__(40),
+    Popup: __webpack_require__(41),
+    dotparser: __webpack_require__(42),
+    gephiParser: __webpack_require__(43)
   };
 
   // Deprecated since v3.0.0
@@ -152,8 +152,8 @@ return /******/ (function(modules) { // webpackBootstrap
   };
 
   // bundled external libraries
-  exports.moment = __webpack_require__(43);
-  exports.hammer = __webpack_require__(44);
+  exports.moment = __webpack_require__(44);
+  exports.hammer = __webpack_require__(45);
 
 
 /***/ },
@@ -164,7 +164,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
   // first check if moment.js is already loaded in the browser window, if so,
   // use this instance. Else, load via commonjs.
-  var moment = __webpack_require__(43);
+  var moment = __webpack_require__(44);
 
   /**
    * Test whether given object is a number
@@ -1580,519 +1580,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var DataSet = __webpack_require__(5);
-
-  /**
-   * DataView
-   *
-   * a dataview offers a filtered view on a dataset or an other dataview.
-   *
-   * @param {DataSet | DataView} data
-   * @param {Object} [options]   Available options: see method get
-   *
-   * @constructor DataView
-   */
-  function DataView (data, options) {
-    this._data = null;
-    this._ids = {}; // ids of the items currently in memory (just contains a boolean true)
-    this._options = options || {};
-    this._fieldId = 'id'; // name of the field containing id
-    this._subscribers = {}; // event subscribers
-
-    var me = this;
-    this.listener = function () {
-      me._onEvent.apply(me, arguments);
-    };
-
-    this.setData(data);
-  }
-
-  // TODO: implement a function .config() to dynamically update things like configured filter
-  // and trigger changes accordingly
-
-  /**
-   * Set a data source for the view
-   * @param {DataSet | DataView} data
-   */
-  DataView.prototype.setData = function (data) {
-    var ids, i, len;
-
-    if (this._data) {
-      // unsubscribe from current dataset
-      if (this._data.unsubscribe) {
-        this._data.unsubscribe('*', this.listener);
-      }
-
-      // trigger a remove of all items in memory
-      ids = [];
-      for (var id in this._ids) {
-        if (this._ids.hasOwnProperty(id)) {
-          ids.push(id);
-        }
-      }
-      this._ids = {};
-      this._trigger('remove', {items: ids});
-    }
-
-    this._data = data;
-
-    if (this._data) {
-      // update fieldId
-      this._fieldId = this._options.fieldId ||
-          (this._data && this._data.options && this._data.options.fieldId) ||
-          'id';
-
-      // trigger an add of all added items
-      ids = this._data.getIds({filter: this._options && this._options.filter});
-      for (i = 0, len = ids.length; i < len; i++) {
-        id = ids[i];
-        this._ids[id] = true;
-      }
-      this._trigger('add', {items: ids});
-
-      // subscribe to new dataset
-      if (this._data.on) {
-        this._data.on('*', this.listener);
-      }
-    }
-  };
-
-  /**
-   * Get data from the data view
-   *
-   * Usage:
-   *
-   *     get()
-   *     get(options: Object)
-   *     get(options: Object, data: Array | DataTable)
-   *
-   *     get(id: Number)
-   *     get(id: Number, options: Object)
-   *     get(id: Number, options: Object, data: Array | DataTable)
-   *
-   *     get(ids: Number[])
-   *     get(ids: Number[], options: Object)
-   *     get(ids: Number[], options: Object, data: Array | DataTable)
-   *
-   * Where:
-   *
-   * {Number | String} id         The id of an item
-   * {Number[] | String{}} ids    An array with ids of items
-   * {Object} options             An Object with options. Available options:
-   *                              {String} [type] Type of data to be returned. Can
-   *                                              be 'DataTable' or 'Array' (default)
-   *                              {Object.<String, String>} [convert]
-   *                              {String[]} [fields] field names to be returned
-   *                              {function} [filter] filter items
-   *                              {String | function} [order] Order the items by
-   *                                  a field name or custom sort function.
-   * {Array | DataTable} [data]   If provided, items will be appended to this
-   *                              array or table. Required in case of Google
-   *                              DataTable.
-   * @param args
-   */
-  DataView.prototype.get = function (args) {
-    var me = this;
-
-    // parse the arguments
-    var ids, options, data;
-    var firstType = util.getType(arguments[0]);
-    if (firstType == 'String' || firstType == 'Number' || firstType == 'Array') {
-      // get(id(s) [, options] [, data])
-      ids = arguments[0];  // can be a single id or an array with ids
-      options = arguments[1];
-      data = arguments[2];
-    }
-    else {
-      // get([, options] [, data])
-      options = arguments[0];
-      data = arguments[1];
-    }
-
-    // extend the options with the default options and provided options
-    var viewOptions = util.extend({}, this._options, options);
-
-    // create a combined filter method when needed
-    if (this._options.filter && options && options.filter) {
-      viewOptions.filter = function (item) {
-        return me._options.filter(item) && options.filter(item);
-      }
-    }
-
-    // build up the call to the linked data set
-    var getArguments = [];
-    if (ids != undefined) {
-      getArguments.push(ids);
-    }
-    getArguments.push(viewOptions);
-    getArguments.push(data);
-
-    return this._data && this._data.get.apply(this._data, getArguments);
-  };
-
-  /**
-   * Get ids of all items or from a filtered set of items.
-   * @param {Object} [options]    An Object with options. Available options:
-   *                              {function} [filter] filter items
-   *                              {String | function} [order] Order the items by
-   *                                  a field name or custom sort function.
-   * @return {Array} ids
-   */
-  DataView.prototype.getIds = function (options) {
-    var ids;
-
-    if (this._data) {
-      var defaultFilter = this._options.filter;
-      var filter;
-
-      if (options && options.filter) {
-        if (defaultFilter) {
-          filter = function (item) {
-            return defaultFilter(item) && options.filter(item);
-          }
-        }
-        else {
-          filter = options.filter;
-        }
-      }
-      else {
-        filter = defaultFilter;
-      }
-
-      ids = this._data.getIds({
-        filter: filter,
-        order: options && options.order
-      });
-    }
-    else {
-      ids = [];
-    }
-
-    return ids;
-  };
-
-  /**
-   * Get the DataSet to which this DataView is connected. In case there is a chain
-   * of multiple DataViews, the root DataSet of this chain is returned.
-   * @return {DataSet} dataSet
-   */
-  DataView.prototype.getDataSet = function () {
-    var dataSet = this;
-    while (dataSet instanceof DataView) {
-      dataSet = dataSet._data;
-    }
-    return dataSet || null;
-  };
-
-  /**
-   * Event listener. Will propagate all events from the connected data set to
-   * the subscribers of the DataView, but will filter the items and only trigger
-   * when there are changes in the filtered data set.
-   * @param {String} event
-   * @param {Object | null} params
-   * @param {String} senderId
-   * @private
-   */
-  DataView.prototype._onEvent = function (event, params, senderId) {
-    var i, len, id, item,
-        ids = params && params.items,
-        data = this._data,
-        added = [],
-        updated = [],
-        removed = [];
-
-    if (ids && data) {
-      switch (event) {
-        case 'add':
-          // filter the ids of the added items
-          for (i = 0, len = ids.length; i < len; i++) {
-            id = ids[i];
-            item = this.get(id);
-            if (item) {
-              this._ids[id] = true;
-              added.push(id);
-            }
-          }
-
-          break;
-
-        case 'update':
-          // determine the event from the views viewpoint: an updated
-          // item can be added, updated, or removed from this view.
-          for (i = 0, len = ids.length; i < len; i++) {
-            id = ids[i];
-            item = this.get(id);
-
-            if (item) {
-              if (this._ids[id]) {
-                updated.push(id);
-              }
-              else {
-                this._ids[id] = true;
-                added.push(id);
-              }
-            }
-            else {
-              if (this._ids[id]) {
-                delete this._ids[id];
-                removed.push(id);
-              }
-              else {
-                // nothing interesting for me :-(
-              }
-            }
-          }
-
-          break;
-
-        case 'remove':
-          // filter the ids of the removed items
-          for (i = 0, len = ids.length; i < len; i++) {
-            id = ids[i];
-            if (this._ids[id]) {
-              delete this._ids[id];
-              removed.push(id);
-            }
-          }
-
-          break;
-      }
-
-      if (added.length) {
-        this._trigger('add', {items: added}, senderId);
-      }
-      if (updated.length) {
-        this._trigger('update', {items: updated}, senderId);
-      }
-      if (removed.length) {
-        this._trigger('remove', {items: removed}, senderId);
-      }
-    }
-  };
-
-  // copy subscription functionality from DataSet
-  DataView.prototype.on = DataSet.prototype.on;
-  DataView.prototype.off = DataSet.prototype.off;
-  DataView.prototype._trigger = DataSet.prototype._trigger;
-
-  // TODO: make these functions deprecated (replaced with `on` and `off` since version 0.5)
-  DataView.prototype.subscribe = DataView.prototype.on;
-  DataView.prototype.unsubscribe = DataView.prototype.off;
-
-  module.exports = DataView;
-
-/***/ },
-/* 4 */
-/***/ function(module, exports, __webpack_require__) {
-
-  /**
-   * A queue
-   * @param {Object} options
-   *            Available options:
-   *            - delay: number    When provided, the queue will be flushed
-   *                               automatically after an inactivity of this delay
-   *                               in milliseconds.
-   *                               Default value is null.
-   *            - max: number      When the queue exceeds the given maximum number
-   *                               of entries, the queue is flushed automatically.
-   *                               Default value of max is Infinity.
-   * @constructor
-   */
-  function Queue(options) {
-    // options
-    this.delay = null;
-    this.max = Infinity;
-
-    // properties
-    this._queue = [];
-    this._timeout = null;
-    this._extended = null;
-
-    this.setOptions(options);
-  }
-
-  /**
-   * Update the configuration of the queue
-   * @param {Object} options
-   *            Available options:
-   *            - delay: number    When provided, the queue will be flushed
-   *                               automatically after an inactivity of this delay
-   *                               in milliseconds.
-   *                               Default value is null.
-   *            - max: number      When the queue exceeds the given maximum number
-   *                               of entries, the queue is flushed automatically.
-   *                               Default value of max is Infinity.
-   * @param options
-   */
-  Queue.prototype.setOptions = function (options) {
-    if (options && typeof options.delay !== 'undefined') {
-      this.delay = options.delay;
-    }
-    if (options && typeof options.max !== 'undefined') {
-      this.max = options.max;
-    }
-
-    this._flushIfNeeded();
-  };
-
-  /**
-   * Extend an object with queuing functionality.
-   * The object will be extended with a function flush, and the methods provided
-   * in options.replace will be replaced with queued ones.
-   * @param {Object} object
-   * @param {Object} options
-   *            Available options:
-   *            - replace: Array.<string>
-   *                               A list with method names of the methods
-   *                               on the object to be replaced with queued ones.
-   *            - delay: number    When provided, the queue will be flushed
-   *                               automatically after an inactivity of this delay
-   *                               in milliseconds.
-   *                               Default value is null.
-   *            - max: number      When the queue exceeds the given maximum number
-   *                               of entries, the queue is flushed automatically.
-   *                               Default value of max is Infinity.
-   * @return {Queue} Returns the created queue
-   */
-  Queue.extend = function (object, options) {
-    var queue = new Queue(options);
-
-    if (object.flush !== undefined) {
-      throw new Error('Target object already has a property flush');
-    }
-    object.flush = function () {
-      queue.flush();
-    };
-
-    var methods = [{
-      name: 'flush',
-      original: undefined
-    }];
-
-    if (options && options.replace) {
-      for (var i = 0; i < options.replace.length; i++) {
-        var name = options.replace[i];
-        methods.push({
-          name: name,
-          original: object[name]
-        });
-        queue.replace(object, name);
-      }
-    }
-
-    queue._extended = {
-      object: object,
-      methods: methods
-    };
-
-    return queue;
-  };
-
-  /**
-   * Destroy the queue. The queue will first flush all queued actions, and in
-   * case it has extended an object, will restore the original object.
-   */
-  Queue.prototype.destroy = function () {
-    this.flush();
-
-    if (this._extended) {
-      var object = this._extended.object;
-      var methods = this._extended.methods;
-      for (var i = 0; i < methods.length; i++) {
-        var method = methods[i];
-        if (method.original) {
-          object[method.name] = method.original;
-        }
-        else {
-          delete object[method.name];
-        }
-      }
-      this._extended = null;
-    }
-  };
-
-  /**
-   * Replace a method on an object with a queued version
-   * @param {Object} object   Object having the method
-   * @param {string} method   The method name
-   */
-  Queue.prototype.replace = function(object, method) {
-    var me = this;
-    var original = object[method];
-    if (!original) {
-      throw new Error('Method ' + method + ' undefined');
-    }
-
-    object[method] = function () {
-      // create an Array with the arguments
-      var args = [];
-      for (var i = 0; i < arguments.length; i++) {
-        args[i] = arguments[i];
-      }
-
-      // add this call to the queue
-      me.queue({
-        args: args,
-        fn: original,
-        context: this
-      });
-    };
-  };
-
-  /**
-   * Queue a call
-   * @param {function | {fn: function, args: Array} | {fn: function, args: Array, context: Object}} entry
-   */
-  Queue.prototype.queue = function(entry) {
-    if (typeof entry === 'function') {
-      this._queue.push({fn: entry});
-    }
-    else {
-      this._queue.push(entry);
-    }
-
-    this._flushIfNeeded();
-  };
-
-  /**
-   * Check whether the queue needs to be flushed
-   * @private
-   */
-  Queue.prototype._flushIfNeeded = function () {
-    // flush when the maximum is exceeded.
-    if (this._queue.length > this.max) {
-      this.flush();
-    }
-
-    // flush after a period of inactivity when a delay is configured
-    clearTimeout(this._timeout);
-    if (this.queue.length > 0 && typeof this.delay === 'number') {
-      var me = this;
-      this._timeout = setTimeout(function () {
-        me.flush();
-      }, this.delay);
-    }
-  };
-
-  /**
-   * Flush all queued calls
-   */
-  Queue.prototype.flush = function () {
-    while (this._queue.length > 0) {
-      var entry = this._queue.shift();
-      entry.fn.apply(entry.context || entry.fn, entry.args || []);
-    }
-  };
-
-  module.exports = Queue;
-
-
-/***/ },
-/* 5 */
-/***/ function(module, exports, __webpack_require__) {
-
-  var util = __webpack_require__(1);
-  var Queue = __webpack_require__(4);
+  var Queue = __webpack_require__(5);
 
   /**
    * DataSet
@@ -3083,12 +2571,524 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
+/* 4 */
+/***/ function(module, exports, __webpack_require__) {
+
+  var util = __webpack_require__(1);
+  var DataSet = __webpack_require__(3);
+
+  /**
+   * DataView
+   *
+   * a dataview offers a filtered view on a dataset or an other dataview.
+   *
+   * @param {DataSet | DataView} data
+   * @param {Object} [options]   Available options: see method get
+   *
+   * @constructor DataView
+   */
+  function DataView (data, options) {
+    this._data = null;
+    this._ids = {}; // ids of the items currently in memory (just contains a boolean true)
+    this._options = options || {};
+    this._fieldId = 'id'; // name of the field containing id
+    this._subscribers = {}; // event subscribers
+
+    var me = this;
+    this.listener = function () {
+      me._onEvent.apply(me, arguments);
+    };
+
+    this.setData(data);
+  }
+
+  // TODO: implement a function .config() to dynamically update things like configured filter
+  // and trigger changes accordingly
+
+  /**
+   * Set a data source for the view
+   * @param {DataSet | DataView} data
+   */
+  DataView.prototype.setData = function (data) {
+    var ids, i, len;
+
+    if (this._data) {
+      // unsubscribe from current dataset
+      if (this._data.unsubscribe) {
+        this._data.unsubscribe('*', this.listener);
+      }
+
+      // trigger a remove of all items in memory
+      ids = [];
+      for (var id in this._ids) {
+        if (this._ids.hasOwnProperty(id)) {
+          ids.push(id);
+        }
+      }
+      this._ids = {};
+      this._trigger('remove', {items: ids});
+    }
+
+    this._data = data;
+
+    if (this._data) {
+      // update fieldId
+      this._fieldId = this._options.fieldId ||
+          (this._data && this._data.options && this._data.options.fieldId) ||
+          'id';
+
+      // trigger an add of all added items
+      ids = this._data.getIds({filter: this._options && this._options.filter});
+      for (i = 0, len = ids.length; i < len; i++) {
+        id = ids[i];
+        this._ids[id] = true;
+      }
+      this._trigger('add', {items: ids});
+
+      // subscribe to new dataset
+      if (this._data.on) {
+        this._data.on('*', this.listener);
+      }
+    }
+  };
+
+  /**
+   * Get data from the data view
+   *
+   * Usage:
+   *
+   *     get()
+   *     get(options: Object)
+   *     get(options: Object, data: Array | DataTable)
+   *
+   *     get(id: Number)
+   *     get(id: Number, options: Object)
+   *     get(id: Number, options: Object, data: Array | DataTable)
+   *
+   *     get(ids: Number[])
+   *     get(ids: Number[], options: Object)
+   *     get(ids: Number[], options: Object, data: Array | DataTable)
+   *
+   * Where:
+   *
+   * {Number | String} id         The id of an item
+   * {Number[] | String{}} ids    An array with ids of items
+   * {Object} options             An Object with options. Available options:
+   *                              {String} [type] Type of data to be returned. Can
+   *                                              be 'DataTable' or 'Array' (default)
+   *                              {Object.<String, String>} [convert]
+   *                              {String[]} [fields] field names to be returned
+   *                              {function} [filter] filter items
+   *                              {String | function} [order] Order the items by
+   *                                  a field name or custom sort function.
+   * {Array | DataTable} [data]   If provided, items will be appended to this
+   *                              array or table. Required in case of Google
+   *                              DataTable.
+   * @param args
+   */
+  DataView.prototype.get = function (args) {
+    var me = this;
+
+    // parse the arguments
+    var ids, options, data;
+    var firstType = util.getType(arguments[0]);
+    if (firstType == 'String' || firstType == 'Number' || firstType == 'Array') {
+      // get(id(s) [, options] [, data])
+      ids = arguments[0];  // can be a single id or an array with ids
+      options = arguments[1];
+      data = arguments[2];
+    }
+    else {
+      // get([, options] [, data])
+      options = arguments[0];
+      data = arguments[1];
+    }
+
+    // extend the options with the default options and provided options
+    var viewOptions = util.extend({}, this._options, options);
+
+    // create a combined filter method when needed
+    if (this._options.filter && options && options.filter) {
+      viewOptions.filter = function (item) {
+        return me._options.filter(item) && options.filter(item);
+      }
+    }
+
+    // build up the call to the linked data set
+    var getArguments = [];
+    if (ids != undefined) {
+      getArguments.push(ids);
+    }
+    getArguments.push(viewOptions);
+    getArguments.push(data);
+
+    return this._data && this._data.get.apply(this._data, getArguments);
+  };
+
+  /**
+   * Get ids of all items or from a filtered set of items.
+   * @param {Object} [options]    An Object with options. Available options:
+   *                              {function} [filter] filter items
+   *                              {String | function} [order] Order the items by
+   *                                  a field name or custom sort function.
+   * @return {Array} ids
+   */
+  DataView.prototype.getIds = function (options) {
+    var ids;
+
+    if (this._data) {
+      var defaultFilter = this._options.filter;
+      var filter;
+
+      if (options && options.filter) {
+        if (defaultFilter) {
+          filter = function (item) {
+            return defaultFilter(item) && options.filter(item);
+          }
+        }
+        else {
+          filter = options.filter;
+        }
+      }
+      else {
+        filter = defaultFilter;
+      }
+
+      ids = this._data.getIds({
+        filter: filter,
+        order: options && options.order
+      });
+    }
+    else {
+      ids = [];
+    }
+
+    return ids;
+  };
+
+  /**
+   * Get the DataSet to which this DataView is connected. In case there is a chain
+   * of multiple DataViews, the root DataSet of this chain is returned.
+   * @return {DataSet} dataSet
+   */
+  DataView.prototype.getDataSet = function () {
+    var dataSet = this;
+    while (dataSet instanceof DataView) {
+      dataSet = dataSet._data;
+    }
+    return dataSet || null;
+  };
+
+  /**
+   * Event listener. Will propagate all events from the connected data set to
+   * the subscribers of the DataView, but will filter the items and only trigger
+   * when there are changes in the filtered data set.
+   * @param {String} event
+   * @param {Object | null} params
+   * @param {String} senderId
+   * @private
+   */
+  DataView.prototype._onEvent = function (event, params, senderId) {
+    var i, len, id, item,
+        ids = params && params.items,
+        data = this._data,
+        added = [],
+        updated = [],
+        removed = [];
+
+    if (ids && data) {
+      switch (event) {
+        case 'add':
+          // filter the ids of the added items
+          for (i = 0, len = ids.length; i < len; i++) {
+            id = ids[i];
+            item = this.get(id);
+            if (item) {
+              this._ids[id] = true;
+              added.push(id);
+            }
+          }
+
+          break;
+
+        case 'update':
+          // determine the event from the views viewpoint: an updated
+          // item can be added, updated, or removed from this view.
+          for (i = 0, len = ids.length; i < len; i++) {
+            id = ids[i];
+            item = this.get(id);
+
+            if (item) {
+              if (this._ids[id]) {
+                updated.push(id);
+              }
+              else {
+                this._ids[id] = true;
+                added.push(id);
+              }
+            }
+            else {
+              if (this._ids[id]) {
+                delete this._ids[id];
+                removed.push(id);
+              }
+              else {
+                // nothing interesting for me :-(
+              }
+            }
+          }
+
+          break;
+
+        case 'remove':
+          // filter the ids of the removed items
+          for (i = 0, len = ids.length; i < len; i++) {
+            id = ids[i];
+            if (this._ids[id]) {
+              delete this._ids[id];
+              removed.push(id);
+            }
+          }
+
+          break;
+      }
+
+      if (added.length) {
+        this._trigger('add', {items: added}, senderId);
+      }
+      if (updated.length) {
+        this._trigger('update', {items: updated}, senderId);
+      }
+      if (removed.length) {
+        this._trigger('remove', {items: removed}, senderId);
+      }
+    }
+  };
+
+  // copy subscription functionality from DataSet
+  DataView.prototype.on = DataSet.prototype.on;
+  DataView.prototype.off = DataSet.prototype.off;
+  DataView.prototype._trigger = DataSet.prototype._trigger;
+
+  // TODO: make these functions deprecated (replaced with `on` and `off` since version 0.5)
+  DataView.prototype.subscribe = DataView.prototype.on;
+  DataView.prototype.unsubscribe = DataView.prototype.off;
+
+  module.exports = DataView;
+
+/***/ },
+/* 5 */
+/***/ function(module, exports, __webpack_require__) {
+
+  /**
+   * A queue
+   * @param {Object} options
+   *            Available options:
+   *            - delay: number    When provided, the queue will be flushed
+   *                               automatically after an inactivity of this delay
+   *                               in milliseconds.
+   *                               Default value is null.
+   *            - max: number      When the queue exceeds the given maximum number
+   *                               of entries, the queue is flushed automatically.
+   *                               Default value of max is Infinity.
+   * @constructor
+   */
+  function Queue(options) {
+    // options
+    this.delay = null;
+    this.max = Infinity;
+
+    // properties
+    this._queue = [];
+    this._timeout = null;
+    this._extended = null;
+
+    this.setOptions(options);
+  }
+
+  /**
+   * Update the configuration of the queue
+   * @param {Object} options
+   *            Available options:
+   *            - delay: number    When provided, the queue will be flushed
+   *                               automatically after an inactivity of this delay
+   *                               in milliseconds.
+   *                               Default value is null.
+   *            - max: number      When the queue exceeds the given maximum number
+   *                               of entries, the queue is flushed automatically.
+   *                               Default value of max is Infinity.
+   * @param options
+   */
+  Queue.prototype.setOptions = function (options) {
+    if (options && typeof options.delay !== 'undefined') {
+      this.delay = options.delay;
+    }
+    if (options && typeof options.max !== 'undefined') {
+      this.max = options.max;
+    }
+
+    this._flushIfNeeded();
+  };
+
+  /**
+   * Extend an object with queuing functionality.
+   * The object will be extended with a function flush, and the methods provided
+   * in options.replace will be replaced with queued ones.
+   * @param {Object} object
+   * @param {Object} options
+   *            Available options:
+   *            - replace: Array.<string>
+   *                               A list with method names of the methods
+   *                               on the object to be replaced with queued ones.
+   *            - delay: number    When provided, the queue will be flushed
+   *                               automatically after an inactivity of this delay
+   *                               in milliseconds.
+   *                               Default value is null.
+   *            - max: number      When the queue exceeds the given maximum number
+   *                               of entries, the queue is flushed automatically.
+   *                               Default value of max is Infinity.
+   * @return {Queue} Returns the created queue
+   */
+  Queue.extend = function (object, options) {
+    var queue = new Queue(options);
+
+    if (object.flush !== undefined) {
+      throw new Error('Target object already has a property flush');
+    }
+    object.flush = function () {
+      queue.flush();
+    };
+
+    var methods = [{
+      name: 'flush',
+      original: undefined
+    }];
+
+    if (options && options.replace) {
+      for (var i = 0; i < options.replace.length; i++) {
+        var name = options.replace[i];
+        methods.push({
+          name: name,
+          original: object[name]
+        });
+        queue.replace(object, name);
+      }
+    }
+
+    queue._extended = {
+      object: object,
+      methods: methods
+    };
+
+    return queue;
+  };
+
+  /**
+   * Destroy the queue. The queue will first flush all queued actions, and in
+   * case it has extended an object, will restore the original object.
+   */
+  Queue.prototype.destroy = function () {
+    this.flush();
+
+    if (this._extended) {
+      var object = this._extended.object;
+      var methods = this._extended.methods;
+      for (var i = 0; i < methods.length; i++) {
+        var method = methods[i];
+        if (method.original) {
+          object[method.name] = method.original;
+        }
+        else {
+          delete object[method.name];
+        }
+      }
+      this._extended = null;
+    }
+  };
+
+  /**
+   * Replace a method on an object with a queued version
+   * @param {Object} object   Object having the method
+   * @param {string} method   The method name
+   */
+  Queue.prototype.replace = function(object, method) {
+    var me = this;
+    var original = object[method];
+    if (!original) {
+      throw new Error('Method ' + method + ' undefined');
+    }
+
+    object[method] = function () {
+      // create an Array with the arguments
+      var args = [];
+      for (var i = 0; i < arguments.length; i++) {
+        args[i] = arguments[i];
+      }
+
+      // add this call to the queue
+      me.queue({
+        args: args,
+        fn: original,
+        context: this
+      });
+    };
+  };
+
+  /**
+   * Queue a call
+   * @param {function | {fn: function, args: Array} | {fn: function, args: Array, context: Object}} entry
+   */
+  Queue.prototype.queue = function(entry) {
+    if (typeof entry === 'function') {
+      this._queue.push({fn: entry});
+    }
+    else {
+      this._queue.push(entry);
+    }
+
+    this._flushIfNeeded();
+  };
+
+  /**
+   * Check whether the queue needs to be flushed
+   * @private
+   */
+  Queue.prototype._flushIfNeeded = function () {
+    // flush when the maximum is exceeded.
+    if (this._queue.length > this.max) {
+      this.flush();
+    }
+
+    // flush after a period of inactivity when a delay is configured
+    clearTimeout(this._timeout);
+    if (this.queue.length > 0 && typeof this.delay === 'number') {
+      var me = this;
+      this._timeout = setTimeout(function () {
+        me.flush();
+      }, this.delay);
+    }
+  };
+
+  /**
+   * Flush all queued calls
+   */
+  Queue.prototype.flush = function () {
+    while (this._queue.length > 0) {
+      var entry = this._queue.shift();
+      entry.fn.apply(entry.context || entry.fn, entry.args || []);
+    }
+  };
+
+  module.exports = Queue;
+
+
+/***/ },
 /* 6 */
 /***/ function(module, exports, __webpack_require__) {
 
   var Emitter = __webpack_require__(56);
-  var DataSet = __webpack_require__(5);
-  var DataView = __webpack_require__(3);
+  var DataSet = __webpack_require__(3);
+  var DataView = __webpack_require__(4);
   var util = __webpack_require__(1);
   var Point3d = __webpack_require__(10);
   var Point2d = __webpack_require__(9);
@@ -5511,7 +5511,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 8 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var DataView = __webpack_require__(3);
+  var DataView = __webpack_require__(4);
 
   /**
    * @class Filter
@@ -6342,10 +6342,10 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var Emitter = __webpack_require__(56);
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
   var util = __webpack_require__(1);
-  var DataSet = __webpack_require__(5);
-  var DataView = __webpack_require__(3);
+  var DataSet = __webpack_require__(3);
+  var DataView = __webpack_require__(4);
   var Range = __webpack_require__(17);
   var Core = __webpack_require__(46);
   var TimeAxis = __webpack_require__(35);
@@ -6662,10 +6662,10 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var Emitter = __webpack_require__(56);
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
   var util = __webpack_require__(1);
-  var DataSet = __webpack_require__(5);
-  var DataView = __webpack_require__(3);
+  var DataSet = __webpack_require__(3);
+  var DataView = __webpack_require__(4);
   var Range = __webpack_require__(17);
   var Core = __webpack_require__(46);
   var TimeAxis = __webpack_require__(35);
@@ -6914,7 +6914,7 @@ return /******/ (function(modules) { // webpackBootstrap
   /**
    * Created by Alex on 10/3/2014.
    */
-  var moment = __webpack_require__(43);
+  var moment = __webpack_require__(44);
 
 
   /**
@@ -7664,7 +7664,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
   var util = __webpack_require__(1);
   var hammerUtil = __webpack_require__(47);
-  var moment = __webpack_require__(43);
+  var moment = __webpack_require__(44);
   var Component = __webpack_require__(25);
   var DateUtil = __webpack_require__(15);
 
@@ -8478,7 +8478,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 19 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var moment = __webpack_require__(43);
+  var moment = __webpack_require__(44);
   var DateUtil = __webpack_require__(15);
   var util = __webpack_require__(1);
 
@@ -9086,7 +9086,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 20 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
   var util = __webpack_require__(1);
 
   /**
@@ -9351,7 +9351,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 21 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
   var Item = __webpack_require__(20);
   var BackgroundGroup = __webpack_require__(31);
   var RangeItem = __webpack_require__(24);
@@ -9984,7 +9984,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 24 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
   var Item = __webpack_require__(20);
 
   /**
@@ -10100,8 +10100,8 @@ return /******/ (function(modules) { // webpackBootstrap
     }
 
     this._repaintDeleteButton(dom.box);
-    this._repaintDragLeft();
-    this._repaintDragRight();
+  //  this._repaintDragLeft();
+  //  this._repaintDragRight();
   };
 
   /**
@@ -10353,7 +10353,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
   var util = __webpack_require__(1);
   var Component = __webpack_require__(25);
-  var moment = __webpack_require__(43);
+  var moment = __webpack_require__(44);
   var locales = __webpack_require__(48);
 
   /**
@@ -10520,10 +10520,10 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 27 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
   var util = __webpack_require__(1);
   var Component = __webpack_require__(25);
-  var moment = __webpack_require__(43);
+  var moment = __webpack_require__(44);
   var locales = __webpack_require__(48);
 
   /**
@@ -12210,10 +12210,10 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 32 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
   var util = __webpack_require__(1);
-  var DataSet = __webpack_require__(5);
-  var DataView = __webpack_require__(3);
+  var DataSet = __webpack_require__(3);
+  var DataView = __webpack_require__(4);
   var Component = __webpack_require__(25);
   var Group = __webpack_require__(30);
   var BackgroundGroup = __webpack_require__(31);
@@ -13960,8 +13960,8 @@ return /******/ (function(modules) { // webpackBootstrap
 
   var util = __webpack_require__(1);
   var DOMutil = __webpack_require__(2);
-  var DataSet = __webpack_require__(5);
-  var DataView = __webpack_require__(3);
+  var DataSet = __webpack_require__(3);
+  var DataView = __webpack_require__(4);
   var Component = __webpack_require__(25);
   var DataAxis = __webpack_require__(28);
   var GraphGroup = __webpack_require__(29);
@@ -14960,11 +14960,11 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
   var Component = __webpack_require__(25);
   var TimeStep = __webpack_require__(19);
   var DateUtil = __webpack_require__(15);
-  var moment = __webpack_require__(43);
+  var moment = __webpack_require__(44);
 
   /**
    * A horizontal time axis
@@ -15455,19 +15455,19 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var Emitter = __webpack_require__(56);
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
   var keycharm = __webpack_require__(57);
   var util = __webpack_require__(1);
   var hammerUtil = __webpack_require__(47);
-  var DataSet = __webpack_require__(5);
-  var DataView = __webpack_require__(3);
-  var dotparser = __webpack_require__(41);
-  var gephiParser = __webpack_require__(42);
+  var DataSet = __webpack_require__(3);
+  var DataView = __webpack_require__(4);
+  var dotparser = __webpack_require__(42);
+  var gephiParser = __webpack_require__(43);
   var Groups = __webpack_require__(38);
   var Images = __webpack_require__(39);
-  var Node = __webpack_require__(45);
+  var Node = __webpack_require__(40);
   var Edge = __webpack_require__(37);
-  var Popup = __webpack_require__(40);
+  var Popup = __webpack_require__(41);
   var MixinLoader = __webpack_require__(52);
   var Activator = __webpack_require__(53);
   var locales = __webpack_require__(54);
@@ -18188,7 +18188,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Node = __webpack_require__(45);
+  var Node = __webpack_require__(40);
 
   /**
    * @class Edge
@@ -19709,1074 +19709,6 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 40 */
 /***/ function(module, exports, __webpack_require__) {
 
-  /**
-   * Popup is a class to create a popup window with some text
-   * @param {Element}  container     The container object.
-   * @param {Number} [x]
-   * @param {Number} [y]
-   * @param {String} [text]
-   * @param {Object} [style]     An object containing borderColor,
-   *                             backgroundColor, etc.
-   */
-  function Popup(container, x, y, text, style) {
-    if (container) {
-      this.container = container;
-    }
-    else {
-      this.container = document.body;
-    }
-
-    // x, y and text are optional, see if a style object was passed in their place
-    if (style === undefined) {
-      if (typeof x === "object") {
-        style = x;
-        x = undefined;
-      } else if (typeof text === "object") {
-        style = text;
-        text = undefined;
-      } else {
-        // for backwards compatibility, in case clients other than Network are creating Popup directly
-        style = {
-          fontColor: 'black',
-          fontSize: 14, // px
-          fontFace: 'verdana',
-          color: {
-            border: '#666',
-            background: '#FFFFC6'
-          }
-        }
-      }
-    }
-
-    this.x = 0;
-    this.y = 0;
-    this.padding = 5;
-
-    if (x !== undefined && y !== undefined ) {
-      this.setPosition(x, y);
-    }
-    if (text !== undefined) {
-      this.setText(text);
-    }
-
-    // create the frame
-    this.frame = document.createElement("div");
-    var styleAttr = this.frame.style;
-    styleAttr.position = "absolute";
-    styleAttr.visibility = "hidden";
-    styleAttr.border = "1px solid " + style.color.border;
-    styleAttr.color = style.fontColor;
-    styleAttr.fontSize = style.fontSize + "px";
-    styleAttr.fontFamily = style.fontFace;
-    styleAttr.padding = this.padding + "px";
-    styleAttr.backgroundColor = style.color.background;
-    styleAttr.borderRadius = "3px";
-    styleAttr.MozBorderRadius = "3px";
-    styleAttr.WebkitBorderRadius = "3px";
-    styleAttr.boxShadow = "3px 3px 10px rgba(128, 128, 128, 0.5)";
-    styleAttr.whiteSpace = "nowrap";
-    this.container.appendChild(this.frame);
-  }
-
-  /**
-   * @param {number} x   Horizontal position of the popup window
-   * @param {number} y   Vertical position of the popup window
-   */
-  Popup.prototype.setPosition = function(x, y) {
-    this.x = parseInt(x);
-    this.y = parseInt(y);
-  };
-
-  /**
-   * Set the content for the popup window. This can be HTML code or text.
-   * @param {string | Element} content
-   */
-  Popup.prototype.setText = function(content) {
-    if (content instanceof Element) {
-      this.frame.innerHTML = '';
-      this.frame.appendChild(content);
-    }
-    else {
-      this.frame.innerHTML = content; // string containing text or HTML
-    }
-  };
-
-  /**
-   * Show the popup window
-   * @param {boolean} show    Optional. Show or hide the window
-   */
-  Popup.prototype.show = function (show) {
-    if (show === undefined) {
-      show = true;
-    }
-
-    if (show) {
-      var height = this.frame.clientHeight;
-      var width =  this.frame.clientWidth;
-      var maxHeight = this.frame.parentNode.clientHeight;
-      var maxWidth = this.frame.parentNode.clientWidth;
-
-      var top = (this.y - height);
-      if (top + height + this.padding > maxHeight) {
-        top = maxHeight - height - this.padding;
-      }
-      if (top < this.padding) {
-        top = this.padding;
-      }
-
-      var left = this.x;
-      if (left + width + this.padding > maxWidth) {
-        left = maxWidth - width - this.padding;
-      }
-      if (left < this.padding) {
-        left = this.padding;
-      }
-
-      this.frame.style.left = left + "px";
-      this.frame.style.top = top + "px";
-      this.frame.style.visibility = "visible";
-    }
-    else {
-      this.hide();
-    }
-  };
-
-  /**
-   * Hide the popup window
-   */
-  Popup.prototype.hide = function () {
-    this.frame.style.visibility = "hidden";
-  };
-
-  module.exports = Popup;
-
-
-/***/ },
-/* 41 */
-/***/ function(module, exports, __webpack_require__) {
-
-  /**
-   * Parse a text source containing data in DOT language into a JSON object.
-   * The object contains two lists: one with nodes and one with edges.
-   *
-   * DOT language reference: http://www.graphviz.org/doc/info/lang.html
-   *
-   * @param {String} data     Text containing a graph in DOT-notation
-   * @return {Object} graph   An object containing two parameters:
-   *                          {Object[]} nodes
-   *                          {Object[]} edges
-   */
-  function parseDOT (data) {
-    dot = data;
-    return parseGraph();
-  }
-
-  // token types enumeration
-  var TOKENTYPE = {
-    NULL : 0,
-    DELIMITER : 1,
-    IDENTIFIER: 2,
-    UNKNOWN : 3
-  };
-
-  // map with all delimiters
-  var DELIMITERS = {
-    '{': true,
-    '}': true,
-    '[': true,
-    ']': true,
-    ';': true,
-    '=': true,
-    ',': true,
-
-    '->': true,
-    '--': true
-  };
-
-  var dot = '';                   // current dot file
-  var index = 0;                  // current index in dot file
-  var c = '';                     // current token character in expr
-  var token = '';                 // current token
-  var tokenType = TOKENTYPE.NULL; // type of the token
-
-  /**
-   * Get the first character from the dot file.
-   * The character is stored into the char c. If the end of the dot file is
-   * reached, the function puts an empty string in c.
-   */
-  function first() {
-    index = 0;
-    c = dot.charAt(0);
-  }
-
-  /**
-   * Get the next character from the dot file.
-   * The character is stored into the char c. If the end of the dot file is
-   * reached, the function puts an empty string in c.
-   */
-  function next() {
-    index++;
-    c = dot.charAt(index);
-  }
-
-  /**
-   * Preview the next character from the dot file.
-   * @return {String} cNext
-   */
-  function nextPreview() {
-    return dot.charAt(index + 1);
-  }
-
-  /**
-   * Test whether given character is alphabetic or numeric
-   * @param {String} c
-   * @return {Boolean} isAlphaNumeric
-   */
-  var regexAlphaNumeric = /[a-zA-Z_0-9.:#]/;
-  function isAlphaNumeric(c) {
-    return regexAlphaNumeric.test(c);
-  }
-
-  /**
-   * Merge all properties of object b into object b
-   * @param {Object} a
-   * @param {Object} b
-   * @return {Object} a
-   */
-  function merge (a, b) {
-    if (!a) {
-      a = {};
-    }
-
-    if (b) {
-      for (var name in b) {
-        if (b.hasOwnProperty(name)) {
-          a[name] = b[name];
-        }
-      }
-    }
-    return a;
-  }
-
-  /**
-   * Set a value in an object, where the provided parameter name can be a
-   * path with nested parameters. For example:
-   *
-   *     var obj = {a: 2};
-   *     setValue(obj, 'b.c', 3);     // obj = {a: 2, b: {c: 3}}
-   *
-   * @param {Object} obj
-   * @param {String} path  A parameter name or dot-separated parameter path,
-   *                      like "color.highlight.border".
-   * @param {*} value
-   */
-  function setValue(obj, path, value) {
-    var keys = path.split('.');
-    var o = obj;
-    while (keys.length) {
-      var key = keys.shift();
-      if (keys.length) {
-        // this isn't the end point
-        if (!o[key]) {
-          o[key] = {};
-        }
-        o = o[key];
-      }
-      else {
-        // this is the end point
-        o[key] = value;
-      }
-    }
-  }
-
-  /**
-   * Add a node to a graph object. If there is already a node with
-   * the same id, their attributes will be merged.
-   * @param {Object} graph
-   * @param {Object} node
-   */
-  function addNode(graph, node) {
-    var i, len;
-    var current = null;
-
-    // find root graph (in case of subgraph)
-    var graphs = [graph]; // list with all graphs from current graph to root graph
-    var root = graph;
-    while (root.parent) {
-      graphs.push(root.parent);
-      root = root.parent;
-    }
-
-    // find existing node (at root level) by its id
-    if (root.nodes) {
-      for (i = 0, len = root.nodes.length; i < len; i++) {
-        if (node.id === root.nodes[i].id) {
-          current = root.nodes[i];
-          break;
-        }
-      }
-    }
-
-    if (!current) {
-      // this is a new node
-      current = {
-        id: node.id
-      };
-      if (graph.node) {
-        // clone default attributes
-        current.attr = merge(current.attr, graph.node);
-      }
-    }
-
-    // add node to this (sub)graph and all its parent graphs
-    for (i = graphs.length - 1; i >= 0; i--) {
-      var g = graphs[i];
-
-      if (!g.nodes) {
-        g.nodes = [];
-      }
-      if (g.nodes.indexOf(current) == -1) {
-        g.nodes.push(current);
-      }
-    }
-
-    // merge attributes
-    if (node.attr) {
-      current.attr = merge(current.attr, node.attr);
-    }
-  }
-
-  /**
-   * Add an edge to a graph object
-   * @param {Object} graph
-   * @param {Object} edge
-   */
-  function addEdge(graph, edge) {
-    if (!graph.edges) {
-      graph.edges = [];
-    }
-    graph.edges.push(edge);
-    if (graph.edge) {
-      var attr = merge({}, graph.edge);     // clone default attributes
-      edge.attr = merge(attr, edge.attr); // merge attributes
-    }
-  }
-
-  /**
-   * Create an edge to a graph object
-   * @param {Object} graph
-   * @param {String | Number | Object} from
-   * @param {String | Number | Object} to
-   * @param {String} type
-   * @param {Object | null} attr
-   * @return {Object} edge
-   */
-  function createEdge(graph, from, to, type, attr) {
-    var edge = {
-      from: from,
-      to: to,
-      type: type
-    };
-
-    if (graph.edge) {
-      edge.attr = merge({}, graph.edge);  // clone default attributes
-    }
-    edge.attr = merge(edge.attr || {}, attr); // merge attributes
-
-    return edge;
-  }
-
-  /**
-   * Get next token in the current dot file.
-   * The token and token type are available as token and tokenType
-   */
-  function getToken() {
-    tokenType = TOKENTYPE.NULL;
-    token = '';
-
-    // skip over whitespaces
-    while (c == ' ' || c == '\t' || c == '\n' || c == '\r') {  // space, tab, enter
-      next();
-    }
-
-    do {
-      var isComment = false;
-
-      // skip comment
-      if (c == '#') {
-        // find the previous non-space character
-        var i = index - 1;
-        while (dot.charAt(i) == ' ' || dot.charAt(i) == '\t') {
-          i--;
-        }
-        if (dot.charAt(i) == '\n' || dot.charAt(i) == '') {
-          // the # is at the start of a line, this is indeed a line comment
-          while (c != '' && c != '\n') {
-            next();
-          }
-          isComment = true;
-        }
-      }
-      if (c == '/' && nextPreview() == '/') {
-        // skip line comment
-        while (c != '' && c != '\n') {
-          next();
-        }
-        isComment = true;
-      }
-      if (c == '/' && nextPreview() == '*') {
-        // skip block comment
-        while (c != '') {
-          if (c == '*' && nextPreview() == '/') {
-            // end of block comment found. skip these last two characters
-            next();
-            next();
-            break;
-          }
-          else {
-            next();
-          }
-        }
-        isComment = true;
-      }
-
-      // skip over whitespaces
-      while (c == ' ' || c == '\t' || c == '\n' || c == '\r') {  // space, tab, enter
-        next();
-      }
-    }
-    while (isComment);
-
-    // check for end of dot file
-    if (c == '') {
-      // token is still empty
-      tokenType = TOKENTYPE.DELIMITER;
-      return;
-    }
-
-    // check for delimiters consisting of 2 characters
-    var c2 = c + nextPreview();
-    if (DELIMITERS[c2]) {
-      tokenType = TOKENTYPE.DELIMITER;
-      token = c2;
-      next();
-      next();
-      return;
-    }
-
-    // check for delimiters consisting of 1 character
-    if (DELIMITERS[c]) {
-      tokenType = TOKENTYPE.DELIMITER;
-      token = c;
-      next();
-      return;
-    }
-
-    // check for an identifier (number or string)
-    // TODO: more precise parsing of numbers/strings (and the port separator ':')
-    if (isAlphaNumeric(c) || c == '-') {
-      token += c;
-      next();
-
-      while (isAlphaNumeric(c)) {
-        token += c;
-        next();
-      }
-      if (token == 'false') {
-        token = false;   // convert to boolean
-      }
-      else if (token == 'true') {
-        token = true;   // convert to boolean
-      }
-      else if (!isNaN(Number(token))) {
-        token = Number(token); // convert to number
-      }
-      tokenType = TOKENTYPE.IDENTIFIER;
-      return;
-    }
-
-    // check for a string enclosed by double quotes
-    if (c == '"') {
-      next();
-      while (c != '' && (c != '"' || (c == '"' && nextPreview() == '"'))) {
-        token += c;
-        if (c == '"') { // skip the escape character
-          next();
-        }
-        next();
-      }
-      if (c != '"') {
-        throw newSyntaxError('End of string " expected');
-      }
-      next();
-      tokenType = TOKENTYPE.IDENTIFIER;
-      return;
-    }
-
-    // something unknown is found, wrong characters, a syntax error
-    tokenType = TOKENTYPE.UNKNOWN;
-    while (c != '') {
-      token += c;
-      next();
-    }
-    throw new SyntaxError('Syntax error in part "' + chop(token, 30) + '"');
-  }
-
-  /**
-   * Parse a graph.
-   * @returns {Object} graph
-   */
-  function parseGraph() {
-    var graph = {};
-
-    first();
-    getToken();
-
-    // optional strict keyword
-    if (token == 'strict') {
-      graph.strict = true;
-      getToken();
-    }
-
-    // graph or digraph keyword
-    if (token == 'graph' || token == 'digraph') {
-      graph.type = token;
-      getToken();
-    }
-
-    // optional graph id
-    if (tokenType == TOKENTYPE.IDENTIFIER) {
-      graph.id = token;
-      getToken();
-    }
-
-    // open angle bracket
-    if (token != '{') {
-      throw newSyntaxError('Angle bracket { expected');
-    }
-    getToken();
-
-    // statements
-    parseStatements(graph);
-
-    // close angle bracket
-    if (token != '}') {
-      throw newSyntaxError('Angle bracket } expected');
-    }
-    getToken();
-
-    // end of file
-    if (token !== '') {
-      throw newSyntaxError('End of file expected');
-    }
-    getToken();
-
-    // remove temporary default properties
-    delete graph.node;
-    delete graph.edge;
-    delete graph.graph;
-
-    return graph;
-  }
-
-  /**
-   * Parse a list with statements.
-   * @param {Object} graph
-   */
-  function parseStatements (graph) {
-    while (token !== '' && token != '}') {
-      parseStatement(graph);
-      if (token == ';') {
-        getToken();
-      }
-    }
-  }
-
-  /**
-   * Parse a single statement. Can be a an attribute statement, node
-   * statement, a series of node statements and edge statements, or a
-   * parameter.
-   * @param {Object} graph
-   */
-  function parseStatement(graph) {
-    // parse subgraph
-    var subgraph = parseSubgraph(graph);
-    if (subgraph) {
-      // edge statements
-      parseEdge(graph, subgraph);
-
-      return;
-    }
-
-    // parse an attribute statement
-    var attr = parseAttributeStatement(graph);
-    if (attr) {
-      return;
-    }
-
-    // parse node
-    if (tokenType != TOKENTYPE.IDENTIFIER) {
-      throw newSyntaxError('Identifier expected');
-    }
-    var id = token; // id can be a string or a number
-    getToken();
-
-    if (token == '=') {
-      // id statement
-      getToken();
-      if (tokenType != TOKENTYPE.IDENTIFIER) {
-        throw newSyntaxError('Identifier expected');
-      }
-      graph[id] = token;
-      getToken();
-      // TODO: implement comma separated list with "a_list: ID=ID [','] [a_list] "
-    }
-    else {
-      parseNodeStatement(graph, id);
-    }
-  }
-
-  /**
-   * Parse a subgraph
-   * @param {Object} graph    parent graph object
-   * @return {Object | null} subgraph
-   */
-  function parseSubgraph (graph) {
-    var subgraph = null;
-
-    // optional subgraph keyword
-    if (token == 'subgraph') {
-      subgraph = {};
-      subgraph.type = 'subgraph';
-      getToken();
-
-      // optional graph id
-      if (tokenType == TOKENTYPE.IDENTIFIER) {
-        subgraph.id = token;
-        getToken();
-      }
-    }
-
-    // open angle bracket
-    if (token == '{') {
-      getToken();
-
-      if (!subgraph) {
-        subgraph = {};
-      }
-      subgraph.parent = graph;
-      subgraph.node = graph.node;
-      subgraph.edge = graph.edge;
-      subgraph.graph = graph.graph;
-
-      // statements
-      parseStatements(subgraph);
-
-      // close angle bracket
-      if (token != '}') {
-        throw newSyntaxError('Angle bracket } expected');
-      }
-      getToken();
-
-      // remove temporary default properties
-      delete subgraph.node;
-      delete subgraph.edge;
-      delete subgraph.graph;
-      delete subgraph.parent;
-
-      // register at the parent graph
-      if (!graph.subgraphs) {
-        graph.subgraphs = [];
-      }
-      graph.subgraphs.push(subgraph);
-    }
-
-    return subgraph;
-  }
-
-  /**
-   * parse an attribute statement like "node [shape=circle fontSize=16]".
-   * Available keywords are 'node', 'edge', 'graph'.
-   * The previous list with default attributes will be replaced
-   * @param {Object} graph
-   * @returns {String | null} keyword Returns the name of the parsed attribute
-   *                                  (node, edge, graph), or null if nothing
-   *                                  is parsed.
-   */
-  function parseAttributeStatement (graph) {
-    // attribute statements
-    if (token == 'node') {
-      getToken();
-
-      // node attributes
-      graph.node = parseAttributeList();
-      return 'node';
-    }
-    else if (token == 'edge') {
-      getToken();
-
-      // edge attributes
-      graph.edge = parseAttributeList();
-      return 'edge';
-    }
-    else if (token == 'graph') {
-      getToken();
-
-      // graph attributes
-      graph.graph = parseAttributeList();
-      return 'graph';
-    }
-
-    return null;
-  }
-
-  /**
-   * parse a node statement
-   * @param {Object} graph
-   * @param {String | Number} id
-   */
-  function parseNodeStatement(graph, id) {
-    // node statement
-    var node = {
-      id: id
-    };
-    var attr = parseAttributeList();
-    if (attr) {
-      node.attr = attr;
-    }
-    addNode(graph, node);
-
-    // edge statements
-    parseEdge(graph, id);
-  }
-
-  /**
-   * Parse an edge or a series of edges
-   * @param {Object} graph
-   * @param {String | Number} from        Id of the from node
-   */
-  function parseEdge(graph, from) {
-    while (token == '->' || token == '--') {
-      var to;
-      var type = token;
-      getToken();
-
-      var subgraph = parseSubgraph(graph);
-      if (subgraph) {
-        to = subgraph;
-      }
-      else {
-        if (tokenType != TOKENTYPE.IDENTIFIER) {
-          throw newSyntaxError('Identifier or subgraph expected');
-        }
-        to = token;
-        addNode(graph, {
-          id: to
-        });
-        getToken();
-      }
-
-      // parse edge attributes
-      var attr = parseAttributeList();
-
-      // create edge
-      var edge = createEdge(graph, from, to, type, attr);
-      addEdge(graph, edge);
-
-      from = to;
-    }
-  }
-
-  /**
-   * Parse a set with attributes,
-   * for example [label="1.000", shape=solid]
-   * @return {Object | null} attr
-   */
-  function parseAttributeList() {
-    var attr = null;
-
-    while (token == '[') {
-      getToken();
-      attr = {};
-      while (token !== '' && token != ']') {
-        if (tokenType != TOKENTYPE.IDENTIFIER) {
-          throw newSyntaxError('Attribute name expected');
-        }
-        var name = token;
-
-        getToken();
-        if (token != '=') {
-          throw newSyntaxError('Equal sign = expected');
-        }
-        getToken();
-
-        if (tokenType != TOKENTYPE.IDENTIFIER) {
-          throw newSyntaxError('Attribute value expected');
-        }
-        var value = token;
-        setValue(attr, name, value); // name can be a path
-
-        getToken();
-        if (token ==',') {
-          getToken();
-        }
-      }
-
-      if (token != ']') {
-        throw newSyntaxError('Bracket ] expected');
-      }
-      getToken();
-    }
-
-    return attr;
-  }
-
-  /**
-   * Create a syntax error with extra information on current token and index.
-   * @param {String} message
-   * @returns {SyntaxError} err
-   */
-  function newSyntaxError(message) {
-    return new SyntaxError(message + ', got "' + chop(token, 30) + '" (char ' + index + ')');
-  }
-
-  /**
-   * Chop off text after a maximum length
-   * @param {String} text
-   * @param {Number} maxLength
-   * @returns {String}
-   */
-  function chop (text, maxLength) {
-    return (text.length <= maxLength) ? text : (text.substr(0, 27) + '...');
-  }
-
-  /**
-   * Execute a function fn for each pair of elements in two arrays
-   * @param {Array | *} array1
-   * @param {Array | *} array2
-   * @param {function} fn
-   */
-  function forEach2(array1, array2, fn) {
-    if (Array.isArray(array1)) {
-      array1.forEach(function (elem1) {
-        if (Array.isArray(array2)) {
-          array2.forEach(function (elem2)  {
-            fn(elem1, elem2);
-          });
-        }
-        else {
-          fn(elem1, array2);
-        }
-      });
-    }
-    else {
-      if (Array.isArray(array2)) {
-        array2.forEach(function (elem2)  {
-          fn(array1, elem2);
-        });
-      }
-      else {
-        fn(array1, array2);
-      }
-    }
-  }
-
-  /**
-   * Convert a string containing a graph in DOT language into a map containing
-   * with nodes and edges in the format of graph.
-   * @param {String} data         Text containing a graph in DOT-notation
-   * @return {Object} graphData
-   */
-  function DOTToGraph (data) {
-    // parse the DOT file
-    var dotData = parseDOT(data);
-    var graphData = {
-      nodes: [],
-      edges: [],
-      options: {}
-    };
-
-    // copy the nodes
-    if (dotData.nodes) {
-      dotData.nodes.forEach(function (dotNode) {
-        var graphNode = {
-          id: dotNode.id,
-          label: String(dotNode.label || dotNode.id)
-        };
-        merge(graphNode, dotNode.attr);
-        if (graphNode.image) {
-          graphNode.shape = 'image';
-        }
-        graphData.nodes.push(graphNode);
-      });
-    }
-
-    // copy the edges
-    if (dotData.edges) {
-      /**
-       * Convert an edge in DOT format to an edge with VisGraph format
-       * @param {Object} dotEdge
-       * @returns {Object} graphEdge
-       */
-      var convertEdge = function (dotEdge) {
-        var graphEdge = {
-          from: dotEdge.from,
-          to: dotEdge.to
-        };
-        merge(graphEdge, dotEdge.attr);
-        graphEdge.style = (dotEdge.type == '->') ? 'arrow' : 'line';
-        return graphEdge;
-      }
-
-      dotData.edges.forEach(function (dotEdge) {
-        var from, to;
-        if (dotEdge.from instanceof Object) {
-          from = dotEdge.from.nodes;
-        }
-        else {
-          from = {
-            id: dotEdge.from
-          }
-        }
-
-        if (dotEdge.to instanceof Object) {
-          to = dotEdge.to.nodes;
-        }
-        else {
-          to = {
-            id: dotEdge.to
-          }
-        }
-
-        if (dotEdge.from instanceof Object && dotEdge.from.edges) {
-          dotEdge.from.edges.forEach(function (subEdge) {
-            var graphEdge = convertEdge(subEdge);
-            graphData.edges.push(graphEdge);
-          });
-        }
-
-        forEach2(from, to, function (from, to) {
-          var subEdge = createEdge(graphData, from.id, to.id, dotEdge.type, dotEdge.attr);
-          var graphEdge = convertEdge(subEdge);
-          graphData.edges.push(graphEdge);
-        });
-
-        if (dotEdge.to instanceof Object && dotEdge.to.edges) {
-          dotEdge.to.edges.forEach(function (subEdge) {
-            var graphEdge = convertEdge(subEdge);
-            graphData.edges.push(graphEdge);
-          });
-        }
-      });
-    }
-
-    // copy the options
-    if (dotData.attr) {
-      graphData.options = dotData.attr;
-    }
-
-    return graphData;
-  }
-
-  // exports
-  exports.parseDOT = parseDOT;
-  exports.DOTToGraph = DOTToGraph;
-
-
-/***/ },
-/* 42 */
-/***/ function(module, exports, __webpack_require__) {
-
-  
-  function parseGephi(gephiJSON, options) {
-    var edges = [];
-    var nodes = [];
-    this.options = {
-      edges: {
-        inheritColor: true
-      },
-      nodes: {
-        allowedToMove: false,
-        parseColor: false
-      }
-    };
-
-    if (options !== undefined) {
-      this.options.nodes['allowedToMove'] = options.allowedToMove | false;
-      this.options.nodes['parseColor']    = options.parseColor    | false;
-      this.options.edges['inheritColor']  = options.inheritColor  | true;
-    }
-
-    var gEdges = gephiJSON.edges;
-    var gNodes = gephiJSON.nodes;
-    for (var i = 0; i < gEdges.length; i++) {
-      var edge = {};
-      var gEdge = gEdges[i];
-      edge['id'] = gEdge.id;
-      edge['from'] = gEdge.source;
-      edge['to'] = gEdge.target;
-      edge['attributes'] = gEdge.attributes;
-  //    edge['value'] = gEdge.attributes !== undefined ? gEdge.attributes.Weight : undefined;
-  //    edge['width'] = edge['value'] !== undefined ? undefined : edgegEdge.size;
-      edge['color'] = gEdge.color;
-      edge['inheritColor'] = edge['color'] !== undefined ? false : this.options.inheritColor;
-      edges.push(edge);
-    }
-
-    for (var i = 0; i < gNodes.length; i++) {
-      var node = {};
-      var gNode = gNodes[i];
-      node['id'] = gNode.id;
-      node['attributes'] = gNode.attributes;
-      node['x'] = gNode.x;
-      node['y'] = gNode.y;
-      node['label'] = gNode.label;
-      if (this.options.nodes.parseColor == true) {
-        node['color'] = gNode.color;
-      }
-      else {
-        node['color'] = gNode.color !== undefined ? {background:gNode.color, border:gNode.color} : undefined;
-      }
-      node['radius'] = gNode.size;
-      node['allowedToMoveX'] = this.options.nodes.allowedToMove;
-      node['allowedToMoveY'] = this.options.nodes.allowedToMove;
-      nodes.push(node);
-    }
-
-    return {nodes:nodes, edges:edges};
-  }
-
-  exports.parseGephi = parseGephi;
-
-/***/ },
-/* 43 */
-/***/ function(module, exports, __webpack_require__) {
-
-  // first check if moment.js is already loaded in the browser window, if so,
-  // use this instance. Else, load via commonjs.
-  module.exports = (typeof window !== 'undefined') && window['moment'] || __webpack_require__(58);
-
-
-/***/ },
-/* 44 */
-/***/ function(module, exports, __webpack_require__) {
-
-  // Only load hammer.js when in a browser environment
-  // (loading hammer.js in a node.js environment gives errors)
-  if (typeof window !== 'undefined') {
-    module.exports = window['Hammer'] || __webpack_require__(59);
-  }
-  else {
-    module.exports = function () {
-      throw Error('hammer.js is only available in a browser, not in node.js.');
-    }
-  }
-
-
-/***/ },
-/* 45 */
-/***/ function(module, exports, __webpack_require__) {
-
   var util = __webpack_require__(1);
 
   /**
@@ -21950,14 +20882,1082 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
+/* 41 */
+/***/ function(module, exports, __webpack_require__) {
+
+  /**
+   * Popup is a class to create a popup window with some text
+   * @param {Element}  container     The container object.
+   * @param {Number} [x]
+   * @param {Number} [y]
+   * @param {String} [text]
+   * @param {Object} [style]     An object containing borderColor,
+   *                             backgroundColor, etc.
+   */
+  function Popup(container, x, y, text, style) {
+    if (container) {
+      this.container = container;
+    }
+    else {
+      this.container = document.body;
+    }
+
+    // x, y and text are optional, see if a style object was passed in their place
+    if (style === undefined) {
+      if (typeof x === "object") {
+        style = x;
+        x = undefined;
+      } else if (typeof text === "object") {
+        style = text;
+        text = undefined;
+      } else {
+        // for backwards compatibility, in case clients other than Network are creating Popup directly
+        style = {
+          fontColor: 'black',
+          fontSize: 14, // px
+          fontFace: 'verdana',
+          color: {
+            border: '#666',
+            background: '#FFFFC6'
+          }
+        }
+      }
+    }
+
+    this.x = 0;
+    this.y = 0;
+    this.padding = 5;
+
+    if (x !== undefined && y !== undefined ) {
+      this.setPosition(x, y);
+    }
+    if (text !== undefined) {
+      this.setText(text);
+    }
+
+    // create the frame
+    this.frame = document.createElement("div");
+    var styleAttr = this.frame.style;
+    styleAttr.position = "absolute";
+    styleAttr.visibility = "hidden";
+    styleAttr.border = "1px solid " + style.color.border;
+    styleAttr.color = style.fontColor;
+    styleAttr.fontSize = style.fontSize + "px";
+    styleAttr.fontFamily = style.fontFace;
+    styleAttr.padding = this.padding + "px";
+    styleAttr.backgroundColor = style.color.background;
+    styleAttr.borderRadius = "3px";
+    styleAttr.MozBorderRadius = "3px";
+    styleAttr.WebkitBorderRadius = "3px";
+    styleAttr.boxShadow = "3px 3px 10px rgba(128, 128, 128, 0.5)";
+    styleAttr.whiteSpace = "nowrap";
+    this.container.appendChild(this.frame);
+  }
+
+  /**
+   * @param {number} x   Horizontal position of the popup window
+   * @param {number} y   Vertical position of the popup window
+   */
+  Popup.prototype.setPosition = function(x, y) {
+    this.x = parseInt(x);
+    this.y = parseInt(y);
+  };
+
+  /**
+   * Set the content for the popup window. This can be HTML code or text.
+   * @param {string | Element} content
+   */
+  Popup.prototype.setText = function(content) {
+    if (content instanceof Element) {
+      this.frame.innerHTML = '';
+      this.frame.appendChild(content);
+    }
+    else {
+      this.frame.innerHTML = content; // string containing text or HTML
+    }
+  };
+
+  /**
+   * Show the popup window
+   * @param {boolean} show    Optional. Show or hide the window
+   */
+  Popup.prototype.show = function (show) {
+    if (show === undefined) {
+      show = true;
+    }
+
+    if (show) {
+      var height = this.frame.clientHeight;
+      var width =  this.frame.clientWidth;
+      var maxHeight = this.frame.parentNode.clientHeight;
+      var maxWidth = this.frame.parentNode.clientWidth;
+
+      var top = (this.y - height);
+      if (top + height + this.padding > maxHeight) {
+        top = maxHeight - height - this.padding;
+      }
+      if (top < this.padding) {
+        top = this.padding;
+      }
+
+      var left = this.x;
+      if (left + width + this.padding > maxWidth) {
+        left = maxWidth - width - this.padding;
+      }
+      if (left < this.padding) {
+        left = this.padding;
+      }
+
+      this.frame.style.left = left + "px";
+      this.frame.style.top = top + "px";
+      this.frame.style.visibility = "visible";
+    }
+    else {
+      this.hide();
+    }
+  };
+
+  /**
+   * Hide the popup window
+   */
+  Popup.prototype.hide = function () {
+    this.frame.style.visibility = "hidden";
+  };
+
+  module.exports = Popup;
+
+
+/***/ },
+/* 42 */
+/***/ function(module, exports, __webpack_require__) {
+
+  /**
+   * Parse a text source containing data in DOT language into a JSON object.
+   * The object contains two lists: one with nodes and one with edges.
+   *
+   * DOT language reference: http://www.graphviz.org/doc/info/lang.html
+   *
+   * @param {String} data     Text containing a graph in DOT-notation
+   * @return {Object} graph   An object containing two parameters:
+   *                          {Object[]} nodes
+   *                          {Object[]} edges
+   */
+  function parseDOT (data) {
+    dot = data;
+    return parseGraph();
+  }
+
+  // token types enumeration
+  var TOKENTYPE = {
+    NULL : 0,
+    DELIMITER : 1,
+    IDENTIFIER: 2,
+    UNKNOWN : 3
+  };
+
+  // map with all delimiters
+  var DELIMITERS = {
+    '{': true,
+    '}': true,
+    '[': true,
+    ']': true,
+    ';': true,
+    '=': true,
+    ',': true,
+
+    '->': true,
+    '--': true
+  };
+
+  var dot = '';                   // current dot file
+  var index = 0;                  // current index in dot file
+  var c = '';                     // current token character in expr
+  var token = '';                 // current token
+  var tokenType = TOKENTYPE.NULL; // type of the token
+
+  /**
+   * Get the first character from the dot file.
+   * The character is stored into the char c. If the end of the dot file is
+   * reached, the function puts an empty string in c.
+   */
+  function first() {
+    index = 0;
+    c = dot.charAt(0);
+  }
+
+  /**
+   * Get the next character from the dot file.
+   * The character is stored into the char c. If the end of the dot file is
+   * reached, the function puts an empty string in c.
+   */
+  function next() {
+    index++;
+    c = dot.charAt(index);
+  }
+
+  /**
+   * Preview the next character from the dot file.
+   * @return {String} cNext
+   */
+  function nextPreview() {
+    return dot.charAt(index + 1);
+  }
+
+  /**
+   * Test whether given character is alphabetic or numeric
+   * @param {String} c
+   * @return {Boolean} isAlphaNumeric
+   */
+  var regexAlphaNumeric = /[a-zA-Z_0-9.:#]/;
+  function isAlphaNumeric(c) {
+    return regexAlphaNumeric.test(c);
+  }
+
+  /**
+   * Merge all properties of object b into object b
+   * @param {Object} a
+   * @param {Object} b
+   * @return {Object} a
+   */
+  function merge (a, b) {
+    if (!a) {
+      a = {};
+    }
+
+    if (b) {
+      for (var name in b) {
+        if (b.hasOwnProperty(name)) {
+          a[name] = b[name];
+        }
+      }
+    }
+    return a;
+  }
+
+  /**
+   * Set a value in an object, where the provided parameter name can be a
+   * path with nested parameters. For example:
+   *
+   *     var obj = {a: 2};
+   *     setValue(obj, 'b.c', 3);     // obj = {a: 2, b: {c: 3}}
+   *
+   * @param {Object} obj
+   * @param {String} path  A parameter name or dot-separated parameter path,
+   *                      like "color.highlight.border".
+   * @param {*} value
+   */
+  function setValue(obj, path, value) {
+    var keys = path.split('.');
+    var o = obj;
+    while (keys.length) {
+      var key = keys.shift();
+      if (keys.length) {
+        // this isn't the end point
+        if (!o[key]) {
+          o[key] = {};
+        }
+        o = o[key];
+      }
+      else {
+        // this is the end point
+        o[key] = value;
+      }
+    }
+  }
+
+  /**
+   * Add a node to a graph object. If there is already a node with
+   * the same id, their attributes will be merged.
+   * @param {Object} graph
+   * @param {Object} node
+   */
+  function addNode(graph, node) {
+    var i, len;
+    var current = null;
+
+    // find root graph (in case of subgraph)
+    var graphs = [graph]; // list with all graphs from current graph to root graph
+    var root = graph;
+    while (root.parent) {
+      graphs.push(root.parent);
+      root = root.parent;
+    }
+
+    // find existing node (at root level) by its id
+    if (root.nodes) {
+      for (i = 0, len = root.nodes.length; i < len; i++) {
+        if (node.id === root.nodes[i].id) {
+          current = root.nodes[i];
+          break;
+        }
+      }
+    }
+
+    if (!current) {
+      // this is a new node
+      current = {
+        id: node.id
+      };
+      if (graph.node) {
+        // clone default attributes
+        current.attr = merge(current.attr, graph.node);
+      }
+    }
+
+    // add node to this (sub)graph and all its parent graphs
+    for (i = graphs.length - 1; i >= 0; i--) {
+      var g = graphs[i];
+
+      if (!g.nodes) {
+        g.nodes = [];
+      }
+      if (g.nodes.indexOf(current) == -1) {
+        g.nodes.push(current);
+      }
+    }
+
+    // merge attributes
+    if (node.attr) {
+      current.attr = merge(current.attr, node.attr);
+    }
+  }
+
+  /**
+   * Add an edge to a graph object
+   * @param {Object} graph
+   * @param {Object} edge
+   */
+  function addEdge(graph, edge) {
+    if (!graph.edges) {
+      graph.edges = [];
+    }
+    graph.edges.push(edge);
+    if (graph.edge) {
+      var attr = merge({}, graph.edge);     // clone default attributes
+      edge.attr = merge(attr, edge.attr); // merge attributes
+    }
+  }
+
+  /**
+   * Create an edge to a graph object
+   * @param {Object} graph
+   * @param {String | Number | Object} from
+   * @param {String | Number | Object} to
+   * @param {String} type
+   * @param {Object | null} attr
+   * @return {Object} edge
+   */
+  function createEdge(graph, from, to, type, attr) {
+    var edge = {
+      from: from,
+      to: to,
+      type: type
+    };
+
+    if (graph.edge) {
+      edge.attr = merge({}, graph.edge);  // clone default attributes
+    }
+    edge.attr = merge(edge.attr || {}, attr); // merge attributes
+
+    return edge;
+  }
+
+  /**
+   * Get next token in the current dot file.
+   * The token and token type are available as token and tokenType
+   */
+  function getToken() {
+    tokenType = TOKENTYPE.NULL;
+    token = '';
+
+    // skip over whitespaces
+    while (c == ' ' || c == '\t' || c == '\n' || c == '\r') {  // space, tab, enter
+      next();
+    }
+
+    do {
+      var isComment = false;
+
+      // skip comment
+      if (c == '#') {
+        // find the previous non-space character
+        var i = index - 1;
+        while (dot.charAt(i) == ' ' || dot.charAt(i) == '\t') {
+          i--;
+        }
+        if (dot.charAt(i) == '\n' || dot.charAt(i) == '') {
+          // the # is at the start of a line, this is indeed a line comment
+          while (c != '' && c != '\n') {
+            next();
+          }
+          isComment = true;
+        }
+      }
+      if (c == '/' && nextPreview() == '/') {
+        // skip line comment
+        while (c != '' && c != '\n') {
+          next();
+        }
+        isComment = true;
+      }
+      if (c == '/' && nextPreview() == '*') {
+        // skip block comment
+        while (c != '') {
+          if (c == '*' && nextPreview() == '/') {
+            // end of block comment found. skip these last two characters
+            next();
+            next();
+            break;
+          }
+          else {
+            next();
+          }
+        }
+        isComment = true;
+      }
+
+      // skip over whitespaces
+      while (c == ' ' || c == '\t' || c == '\n' || c == '\r') {  // space, tab, enter
+        next();
+      }
+    }
+    while (isComment);
+
+    // check for end of dot file
+    if (c == '') {
+      // token is still empty
+      tokenType = TOKENTYPE.DELIMITER;
+      return;
+    }
+
+    // check for delimiters consisting of 2 characters
+    var c2 = c + nextPreview();
+    if (DELIMITERS[c2]) {
+      tokenType = TOKENTYPE.DELIMITER;
+      token = c2;
+      next();
+      next();
+      return;
+    }
+
+    // check for delimiters consisting of 1 character
+    if (DELIMITERS[c]) {
+      tokenType = TOKENTYPE.DELIMITER;
+      token = c;
+      next();
+      return;
+    }
+
+    // check for an identifier (number or string)
+    // TODO: more precise parsing of numbers/strings (and the port separator ':')
+    if (isAlphaNumeric(c) || c == '-') {
+      token += c;
+      next();
+
+      while (isAlphaNumeric(c)) {
+        token += c;
+        next();
+      }
+      if (token == 'false') {
+        token = false;   // convert to boolean
+      }
+      else if (token == 'true') {
+        token = true;   // convert to boolean
+      }
+      else if (!isNaN(Number(token))) {
+        token = Number(token); // convert to number
+      }
+      tokenType = TOKENTYPE.IDENTIFIER;
+      return;
+    }
+
+    // check for a string enclosed by double quotes
+    if (c == '"') {
+      next();
+      while (c != '' && (c != '"' || (c == '"' && nextPreview() == '"'))) {
+        token += c;
+        if (c == '"') { // skip the escape character
+          next();
+        }
+        next();
+      }
+      if (c != '"') {
+        throw newSyntaxError('End of string " expected');
+      }
+      next();
+      tokenType = TOKENTYPE.IDENTIFIER;
+      return;
+    }
+
+    // something unknown is found, wrong characters, a syntax error
+    tokenType = TOKENTYPE.UNKNOWN;
+    while (c != '') {
+      token += c;
+      next();
+    }
+    throw new SyntaxError('Syntax error in part "' + chop(token, 30) + '"');
+  }
+
+  /**
+   * Parse a graph.
+   * @returns {Object} graph
+   */
+  function parseGraph() {
+    var graph = {};
+
+    first();
+    getToken();
+
+    // optional strict keyword
+    if (token == 'strict') {
+      graph.strict = true;
+      getToken();
+    }
+
+    // graph or digraph keyword
+    if (token == 'graph' || token == 'digraph') {
+      graph.type = token;
+      getToken();
+    }
+
+    // optional graph id
+    if (tokenType == TOKENTYPE.IDENTIFIER) {
+      graph.id = token;
+      getToken();
+    }
+
+    // open angle bracket
+    if (token != '{') {
+      throw newSyntaxError('Angle bracket { expected');
+    }
+    getToken();
+
+    // statements
+    parseStatements(graph);
+
+    // close angle bracket
+    if (token != '}') {
+      throw newSyntaxError('Angle bracket } expected');
+    }
+    getToken();
+
+    // end of file
+    if (token !== '') {
+      throw newSyntaxError('End of file expected');
+    }
+    getToken();
+
+    // remove temporary default properties
+    delete graph.node;
+    delete graph.edge;
+    delete graph.graph;
+
+    return graph;
+  }
+
+  /**
+   * Parse a list with statements.
+   * @param {Object} graph
+   */
+  function parseStatements (graph) {
+    while (token !== '' && token != '}') {
+      parseStatement(graph);
+      if (token == ';') {
+        getToken();
+      }
+    }
+  }
+
+  /**
+   * Parse a single statement. Can be a an attribute statement, node
+   * statement, a series of node statements and edge statements, or a
+   * parameter.
+   * @param {Object} graph
+   */
+  function parseStatement(graph) {
+    // parse subgraph
+    var subgraph = parseSubgraph(graph);
+    if (subgraph) {
+      // edge statements
+      parseEdge(graph, subgraph);
+
+      return;
+    }
+
+    // parse an attribute statement
+    var attr = parseAttributeStatement(graph);
+    if (attr) {
+      return;
+    }
+
+    // parse node
+    if (tokenType != TOKENTYPE.IDENTIFIER) {
+      throw newSyntaxError('Identifier expected');
+    }
+    var id = token; // id can be a string or a number
+    getToken();
+
+    if (token == '=') {
+      // id statement
+      getToken();
+      if (tokenType != TOKENTYPE.IDENTIFIER) {
+        throw newSyntaxError('Identifier expected');
+      }
+      graph[id] = token;
+      getToken();
+      // TODO: implement comma separated list with "a_list: ID=ID [','] [a_list] "
+    }
+    else {
+      parseNodeStatement(graph, id);
+    }
+  }
+
+  /**
+   * Parse a subgraph
+   * @param {Object} graph    parent graph object
+   * @return {Object | null} subgraph
+   */
+  function parseSubgraph (graph) {
+    var subgraph = null;
+
+    // optional subgraph keyword
+    if (token == 'subgraph') {
+      subgraph = {};
+      subgraph.type = 'subgraph';
+      getToken();
+
+      // optional graph id
+      if (tokenType == TOKENTYPE.IDENTIFIER) {
+        subgraph.id = token;
+        getToken();
+      }
+    }
+
+    // open angle bracket
+    if (token == '{') {
+      getToken();
+
+      if (!subgraph) {
+        subgraph = {};
+      }
+      subgraph.parent = graph;
+      subgraph.node = graph.node;
+      subgraph.edge = graph.edge;
+      subgraph.graph = graph.graph;
+
+      // statements
+      parseStatements(subgraph);
+
+      // close angle bracket
+      if (token != '}') {
+        throw newSyntaxError('Angle bracket } expected');
+      }
+      getToken();
+
+      // remove temporary default properties
+      delete subgraph.node;
+      delete subgraph.edge;
+      delete subgraph.graph;
+      delete subgraph.parent;
+
+      // register at the parent graph
+      if (!graph.subgraphs) {
+        graph.subgraphs = [];
+      }
+      graph.subgraphs.push(subgraph);
+    }
+
+    return subgraph;
+  }
+
+  /**
+   * parse an attribute statement like "node [shape=circle fontSize=16]".
+   * Available keywords are 'node', 'edge', 'graph'.
+   * The previous list with default attributes will be replaced
+   * @param {Object} graph
+   * @returns {String | null} keyword Returns the name of the parsed attribute
+   *                                  (node, edge, graph), or null if nothing
+   *                                  is parsed.
+   */
+  function parseAttributeStatement (graph) {
+    // attribute statements
+    if (token == 'node') {
+      getToken();
+
+      // node attributes
+      graph.node = parseAttributeList();
+      return 'node';
+    }
+    else if (token == 'edge') {
+      getToken();
+
+      // edge attributes
+      graph.edge = parseAttributeList();
+      return 'edge';
+    }
+    else if (token == 'graph') {
+      getToken();
+
+      // graph attributes
+      graph.graph = parseAttributeList();
+      return 'graph';
+    }
+
+    return null;
+  }
+
+  /**
+   * parse a node statement
+   * @param {Object} graph
+   * @param {String | Number} id
+   */
+  function parseNodeStatement(graph, id) {
+    // node statement
+    var node = {
+      id: id
+    };
+    var attr = parseAttributeList();
+    if (attr) {
+      node.attr = attr;
+    }
+    addNode(graph, node);
+
+    // edge statements
+    parseEdge(graph, id);
+  }
+
+  /**
+   * Parse an edge or a series of edges
+   * @param {Object} graph
+   * @param {String | Number} from        Id of the from node
+   */
+  function parseEdge(graph, from) {
+    while (token == '->' || token == '--') {
+      var to;
+      var type = token;
+      getToken();
+
+      var subgraph = parseSubgraph(graph);
+      if (subgraph) {
+        to = subgraph;
+      }
+      else {
+        if (tokenType != TOKENTYPE.IDENTIFIER) {
+          throw newSyntaxError('Identifier or subgraph expected');
+        }
+        to = token;
+        addNode(graph, {
+          id: to
+        });
+        getToken();
+      }
+
+      // parse edge attributes
+      var attr = parseAttributeList();
+
+      // create edge
+      var edge = createEdge(graph, from, to, type, attr);
+      addEdge(graph, edge);
+
+      from = to;
+    }
+  }
+
+  /**
+   * Parse a set with attributes,
+   * for example [label="1.000", shape=solid]
+   * @return {Object | null} attr
+   */
+  function parseAttributeList() {
+    var attr = null;
+
+    while (token == '[') {
+      getToken();
+      attr = {};
+      while (token !== '' && token != ']') {
+        if (tokenType != TOKENTYPE.IDENTIFIER) {
+          throw newSyntaxError('Attribute name expected');
+        }
+        var name = token;
+
+        getToken();
+        if (token != '=') {
+          throw newSyntaxError('Equal sign = expected');
+        }
+        getToken();
+
+        if (tokenType != TOKENTYPE.IDENTIFIER) {
+          throw newSyntaxError('Attribute value expected');
+        }
+        var value = token;
+        setValue(attr, name, value); // name can be a path
+
+        getToken();
+        if (token ==',') {
+          getToken();
+        }
+      }
+
+      if (token != ']') {
+        throw newSyntaxError('Bracket ] expected');
+      }
+      getToken();
+    }
+
+    return attr;
+  }
+
+  /**
+   * Create a syntax error with extra information on current token and index.
+   * @param {String} message
+   * @returns {SyntaxError} err
+   */
+  function newSyntaxError(message) {
+    return new SyntaxError(message + ', got "' + chop(token, 30) + '" (char ' + index + ')');
+  }
+
+  /**
+   * Chop off text after a maximum length
+   * @param {String} text
+   * @param {Number} maxLength
+   * @returns {String}
+   */
+  function chop (text, maxLength) {
+    return (text.length <= maxLength) ? text : (text.substr(0, 27) + '...');
+  }
+
+  /**
+   * Execute a function fn for each pair of elements in two arrays
+   * @param {Array | *} array1
+   * @param {Array | *} array2
+   * @param {function} fn
+   */
+  function forEach2(array1, array2, fn) {
+    if (Array.isArray(array1)) {
+      array1.forEach(function (elem1) {
+        if (Array.isArray(array2)) {
+          array2.forEach(function (elem2)  {
+            fn(elem1, elem2);
+          });
+        }
+        else {
+          fn(elem1, array2);
+        }
+      });
+    }
+    else {
+      if (Array.isArray(array2)) {
+        array2.forEach(function (elem2)  {
+          fn(array1, elem2);
+        });
+      }
+      else {
+        fn(array1, array2);
+      }
+    }
+  }
+
+  /**
+   * Convert a string containing a graph in DOT language into a map containing
+   * with nodes and edges in the format of graph.
+   * @param {String} data         Text containing a graph in DOT-notation
+   * @return {Object} graphData
+   */
+  function DOTToGraph (data) {
+    // parse the DOT file
+    var dotData = parseDOT(data);
+    var graphData = {
+      nodes: [],
+      edges: [],
+      options: {}
+    };
+
+    // copy the nodes
+    if (dotData.nodes) {
+      dotData.nodes.forEach(function (dotNode) {
+        var graphNode = {
+          id: dotNode.id,
+          label: String(dotNode.label || dotNode.id)
+        };
+        merge(graphNode, dotNode.attr);
+        if (graphNode.image) {
+          graphNode.shape = 'image';
+        }
+        graphData.nodes.push(graphNode);
+      });
+    }
+
+    // copy the edges
+    if (dotData.edges) {
+      /**
+       * Convert an edge in DOT format to an edge with VisGraph format
+       * @param {Object} dotEdge
+       * @returns {Object} graphEdge
+       */
+      var convertEdge = function (dotEdge) {
+        var graphEdge = {
+          from: dotEdge.from,
+          to: dotEdge.to
+        };
+        merge(graphEdge, dotEdge.attr);
+        graphEdge.style = (dotEdge.type == '->') ? 'arrow' : 'line';
+        return graphEdge;
+      }
+
+      dotData.edges.forEach(function (dotEdge) {
+        var from, to;
+        if (dotEdge.from instanceof Object) {
+          from = dotEdge.from.nodes;
+        }
+        else {
+          from = {
+            id: dotEdge.from
+          }
+        }
+
+        if (dotEdge.to instanceof Object) {
+          to = dotEdge.to.nodes;
+        }
+        else {
+          to = {
+            id: dotEdge.to
+          }
+        }
+
+        if (dotEdge.from instanceof Object && dotEdge.from.edges) {
+          dotEdge.from.edges.forEach(function (subEdge) {
+            var graphEdge = convertEdge(subEdge);
+            graphData.edges.push(graphEdge);
+          });
+        }
+
+        forEach2(from, to, function (from, to) {
+          var subEdge = createEdge(graphData, from.id, to.id, dotEdge.type, dotEdge.attr);
+          var graphEdge = convertEdge(subEdge);
+          graphData.edges.push(graphEdge);
+        });
+
+        if (dotEdge.to instanceof Object && dotEdge.to.edges) {
+          dotEdge.to.edges.forEach(function (subEdge) {
+            var graphEdge = convertEdge(subEdge);
+            graphData.edges.push(graphEdge);
+          });
+        }
+      });
+    }
+
+    // copy the options
+    if (dotData.attr) {
+      graphData.options = dotData.attr;
+    }
+
+    return graphData;
+  }
+
+  // exports
+  exports.parseDOT = parseDOT;
+  exports.DOTToGraph = DOTToGraph;
+
+
+/***/ },
+/* 43 */
+/***/ function(module, exports, __webpack_require__) {
+
+  
+  function parseGephi(gephiJSON, options) {
+    var edges = [];
+    var nodes = [];
+    this.options = {
+      edges: {
+        inheritColor: true
+      },
+      nodes: {
+        allowedToMove: false,
+        parseColor: false
+      }
+    };
+
+    if (options !== undefined) {
+      this.options.nodes['allowedToMove'] = options.allowedToMove | false;
+      this.options.nodes['parseColor']    = options.parseColor    | false;
+      this.options.edges['inheritColor']  = options.inheritColor  | true;
+    }
+
+    var gEdges = gephiJSON.edges;
+    var gNodes = gephiJSON.nodes;
+    for (var i = 0; i < gEdges.length; i++) {
+      var edge = {};
+      var gEdge = gEdges[i];
+      edge['id'] = gEdge.id;
+      edge['from'] = gEdge.source;
+      edge['to'] = gEdge.target;
+      edge['attributes'] = gEdge.attributes;
+  //    edge['value'] = gEdge.attributes !== undefined ? gEdge.attributes.Weight : undefined;
+  //    edge['width'] = edge['value'] !== undefined ? undefined : edgegEdge.size;
+      edge['color'] = gEdge.color;
+      edge['inheritColor'] = edge['color'] !== undefined ? false : this.options.inheritColor;
+      edges.push(edge);
+    }
+
+    for (var i = 0; i < gNodes.length; i++) {
+      var node = {};
+      var gNode = gNodes[i];
+      node['id'] = gNode.id;
+      node['attributes'] = gNode.attributes;
+      node['x'] = gNode.x;
+      node['y'] = gNode.y;
+      node['label'] = gNode.label;
+      if (this.options.nodes.parseColor == true) {
+        node['color'] = gNode.color;
+      }
+      else {
+        node['color'] = gNode.color !== undefined ? {background:gNode.color, border:gNode.color} : undefined;
+      }
+      node['radius'] = gNode.size;
+      node['allowedToMoveX'] = this.options.nodes.allowedToMove;
+      node['allowedToMoveY'] = this.options.nodes.allowedToMove;
+      nodes.push(node);
+    }
+
+    return {nodes:nodes, edges:edges};
+  }
+
+  exports.parseGephi = parseGephi;
+
+/***/ },
+/* 44 */
+/***/ function(module, exports, __webpack_require__) {
+
+  // first check if moment.js is already loaded in the browser window, if so,
+  // use this instance. Else, load via commonjs.
+  module.exports = (typeof window !== 'undefined') && window['moment'] || __webpack_require__(59);
+
+
+/***/ },
+/* 45 */
+/***/ function(module, exports, __webpack_require__) {
+
+  // Only load hammer.js when in a browser environment
+  // (loading hammer.js in a node.js environment gives errors)
+  if (typeof window !== 'undefined') {
+    module.exports = window['Hammer'] || __webpack_require__(58);
+  }
+  else {
+    module.exports = function () {
+      throw Error('hammer.js is only available in a browser, not in node.js.');
+    }
+  }
+
+
+/***/ },
 /* 46 */
 /***/ function(module, exports, __webpack_require__) {
 
   var Emitter = __webpack_require__(56);
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
   var util = __webpack_require__(1);
-  var DataSet = __webpack_require__(5);
-  var DataView = __webpack_require__(3);
+  var DataSet = __webpack_require__(3);
+  var DataView = __webpack_require__(4);
   var Range = __webpack_require__(17);
   var ItemSet = __webpack_require__(32);
   var Activator = __webpack_require__(53);
@@ -22843,7 +22843,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 47 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
 
   /**
    * Fake a hammer.js gesture. Event can be a ScrollEvent or MouseMoveEvent
@@ -23610,7 +23610,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
   var keycharm = __webpack_require__(57);
   var Emitter = __webpack_require__(56);
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
   var util = __webpack_require__(1);
 
   /**
@@ -24404,6 +24404,2173 @@ return /******/ (function(modules) { // webpackBootstrap
 
 /***/ },
 /* 58 */
+/***/ function(module, exports, __webpack_require__) {
+
+  var __WEBPACK_AMD_DEFINE_RESULT__;/*! Hammer.JS - v1.1.3 - 2014-05-20
+   * http://eightmedia.github.io/hammer.js
+   *
+   * Copyright (c) 2014 Jorik Tangelder <j.tangelder@gmail.com>;
+   * Licensed under the MIT license */
+
+  (function(window, undefined) {
+    'use strict';
+
+  /**
+   * @main
+   * @module hammer
+   *
+   * @class Hammer
+   * @static
+   */
+
+  /**
+   * Hammer, use this to create instances
+   * ````
+   * var hammertime = new Hammer(myElement);
+   * ````
+   *
+   * @method Hammer
+   * @param {HTMLElement} element
+   * @param {Object} [options={}]
+   * @return {Hammer.Instance}
+   */
+  var Hammer = function Hammer(element, options) {
+      return new Hammer.Instance(element, options || {});
+  };
+
+  /**
+   * version, as defined in package.json
+   * the value will be set at each build
+   * @property VERSION
+   * @final
+   * @type {String}
+   */
+  Hammer.VERSION = '1.1.3';
+
+  /**
+   * default settings.
+   * more settings are defined per gesture at `/gestures`. Each gesture can be disabled/enabled
+   * by setting it's name (like `swipe`) to false.
+   * You can set the defaults for all instances by changing this object before creating an instance.
+   * @example
+   * ````
+   *  Hammer.defaults.drag = false;
+   *  Hammer.defaults.behavior.touchAction = 'pan-y';
+   *  delete Hammer.defaults.behavior.userSelect;
+   * ````
+   * @property defaults
+   * @type {Object}
+   */
+  Hammer.defaults = {
+      /**
+       * this setting object adds styles and attributes to the element to prevent the browser from doing
+       * its native behavior. The css properties are auto prefixed for the browsers when needed.
+       * @property defaults.behavior
+       * @type {Object}
+       */
+      behavior: {
+          /**
+           * Disables text selection to improve the dragging gesture. When the value is `none` it also sets
+           * `onselectstart=false` for IE on the element. Mainly for desktop browsers.
+           * @property defaults.behavior.userSelect
+           * @type {String}
+           * @default 'none'
+           */
+          userSelect: 'none',
+
+          /**
+           * Specifies whether and how a given region can be manipulated by the user (for instance, by panning or zooming).
+           * Used by Chrome 35> and IE10>. By default this makes the element blocking any touch event.
+           * @property defaults.behavior.touchAction
+           * @type {String}
+           * @default: 'pan-y'
+           */
+          touchAction: 'pan-y',
+
+          /**
+           * Disables the default callout shown when you touch and hold a touch target.
+           * On iOS, when you touch and hold a touch target such as a link, Safari displays
+           * a callout containing information about the link. This property allows you to disable that callout.
+           * @property defaults.behavior.touchCallout
+           * @type {String}
+           * @default 'none'
+           */
+          touchCallout: 'none',
+
+          /**
+           * Specifies whether zooming is enabled. Used by IE10>
+           * @property defaults.behavior.contentZooming
+           * @type {String}
+           * @default 'none'
+           */
+          contentZooming: 'none',
+
+          /**
+           * Specifies that an entire element should be draggable instead of its contents.
+           * Mainly for desktop browsers.
+           * @property defaults.behavior.userDrag
+           * @type {String}
+           * @default 'none'
+           */
+          userDrag: 'none',
+
+          /**
+           * Overrides the highlight color shown when the user taps a link or a JavaScript
+           * clickable element in Safari on iPhone. This property obeys the alpha value, if specified.
+           *
+           * If you don't specify an alpha value, Safari on iPhone applies a default alpha value
+           * to the color. To disable tap highlighting, set the alpha value to 0 (invisible).
+           * If you set the alpha value to 1.0 (opaque), the element is not visible when tapped.
+           * @property defaults.behavior.tapHighlightColor
+           * @type {String}
+           * @default 'rgba(0,0,0,0)'
+           */
+          tapHighlightColor: 'rgba(0,0,0,0)'
+      }
+  };
+
+  /**
+   * hammer document where the base events are added at
+   * @property DOCUMENT
+   * @type {HTMLElement}
+   * @default window.document
+   */
+  Hammer.DOCUMENT = document;
+
+  /**
+   * detect support for pointer events
+   * @property HAS_POINTEREVENTS
+   * @type {Boolean}
+   */
+  Hammer.HAS_POINTEREVENTS = navigator.pointerEnabled || navigator.msPointerEnabled;
+
+  /**
+   * detect support for touch events
+   * @property HAS_TOUCHEVENTS
+   * @type {Boolean}
+   */
+  Hammer.HAS_TOUCHEVENTS = ('ontouchstart' in window);
+
+  /**
+   * detect mobile browsers
+   * @property IS_MOBILE
+   * @type {Boolean}
+   */
+  Hammer.IS_MOBILE = /mobile|tablet|ip(ad|hone|od)|android|silk/i.test(navigator.userAgent);
+
+  /**
+   * detect if we want to support mouseevents at all
+   * @property NO_MOUSEEVENTS
+   * @type {Boolean}
+   */
+  Hammer.NO_MOUSEEVENTS = (Hammer.HAS_TOUCHEVENTS && Hammer.IS_MOBILE) || Hammer.HAS_POINTEREVENTS;
+
+  /**
+   * interval in which Hammer recalculates current velocity/direction/angle in ms
+   * @property CALCULATE_INTERVAL
+   * @type {Number}
+   * @default 25
+   */
+  Hammer.CALCULATE_INTERVAL = 25;
+
+  /**
+   * eventtypes per touchevent (start, move, end) are filled by `Event.determineEventTypes` on `setup`
+   * the object contains the DOM event names per type (`EVENT_START`, `EVENT_MOVE`, `EVENT_END`)
+   * @property EVENT_TYPES
+   * @private
+   * @writeOnce
+   * @type {Object}
+   */
+  var EVENT_TYPES = {};
+
+  /**
+   * direction strings, for safe comparisons
+   * @property DIRECTION_DOWN|LEFT|UP|RIGHT
+   * @final
+   * @type {String}
+   * @default 'down' 'left' 'up' 'right'
+   */
+  var DIRECTION_DOWN = Hammer.DIRECTION_DOWN = 'down';
+  var DIRECTION_LEFT = Hammer.DIRECTION_LEFT = 'left';
+  var DIRECTION_UP = Hammer.DIRECTION_UP = 'up';
+  var DIRECTION_RIGHT = Hammer.DIRECTION_RIGHT = 'right';
+
+  /**
+   * pointertype strings, for safe comparisons
+   * @property POINTER_MOUSE|TOUCH|PEN
+   * @final
+   * @type {String}
+   * @default 'mouse' 'touch' 'pen'
+   */
+  var POINTER_MOUSE = Hammer.POINTER_MOUSE = 'mouse';
+  var POINTER_TOUCH = Hammer.POINTER_TOUCH = 'touch';
+  var POINTER_PEN = Hammer.POINTER_PEN = 'pen';
+
+  /**
+   * eventtypes
+   * @property EVENT_START|MOVE|END|RELEASE|TOUCH
+   * @final
+   * @type {String}
+   * @default 'start' 'change' 'move' 'end' 'release' 'touch'
+   */
+  var EVENT_START = Hammer.EVENT_START = 'start';
+  var EVENT_MOVE = Hammer.EVENT_MOVE = 'move';
+  var EVENT_END = Hammer.EVENT_END = 'end';
+  var EVENT_RELEASE = Hammer.EVENT_RELEASE = 'release';
+  var EVENT_TOUCH = Hammer.EVENT_TOUCH = 'touch';
+
+  /**
+   * if the window events are set...
+   * @property READY
+   * @writeOnce
+   * @type {Boolean}
+   * @default false
+   */
+  Hammer.READY = false;
+
+  /**
+   * plugins namespace
+   * @property plugins
+   * @type {Object}
+   */
+  Hammer.plugins = Hammer.plugins || {};
+
+  /**
+   * gestures namespace
+   * see `/gestures` for the definitions
+   * @property gestures
+   * @type {Object}
+   */
+  Hammer.gestures = Hammer.gestures || {};
+
+  /**
+   * setup events to detect gestures on the document
+   * this function is called when creating an new instance
+   * @private
+   */
+  function setup() {
+      if(Hammer.READY) {
+          return;
+      }
+
+      // find what eventtypes we add listeners to
+      Event.determineEventTypes();
+
+      // Register all gestures inside Hammer.gestures
+      Utils.each(Hammer.gestures, function(gesture) {
+          Detection.register(gesture);
+      });
+
+      // Add touch events on the document
+      Event.onTouch(Hammer.DOCUMENT, EVENT_MOVE, Detection.detect);
+      Event.onTouch(Hammer.DOCUMENT, EVENT_END, Detection.detect);
+
+      // Hammer is ready...!
+      Hammer.READY = true;
+  }
+
+  /**
+   * @module hammer
+   *
+   * @class Utils
+   * @static
+   */
+  var Utils = Hammer.utils = {
+      /**
+       * extend method, could also be used for cloning when `dest` is an empty object.
+       * changes the dest object
+       * @method extend
+       * @param {Object} dest
+       * @param {Object} src
+       * @param {Boolean} [merge=false]  do a merge
+       * @return {Object} dest
+       */
+      extend: function extend(dest, src, merge) {
+          for(var key in src) {
+              if(!src.hasOwnProperty(key) || (dest[key] !== undefined && merge)) {
+                  continue;
+              }
+              dest[key] = src[key];
+          }
+          return dest;
+      },
+
+      /**
+       * simple addEventListener wrapper
+       * @method on
+       * @param {HTMLElement} element
+       * @param {String} type
+       * @param {Function} handler
+       */
+      on: function on(element, type, handler) {
+          element.addEventListener(type, handler, false);
+      },
+
+      /**
+       * simple removeEventListener wrapper
+       * @method off
+       * @param {HTMLElement} element
+       * @param {String} type
+       * @param {Function} handler
+       */
+      off: function off(element, type, handler) {
+          element.removeEventListener(type, handler, false);
+      },
+
+      /**
+       * forEach over arrays and objects
+       * @method each
+       * @param {Object|Array} obj
+       * @param {Function} iterator
+       * @param {any} iterator.item
+       * @param {Number} iterator.index
+       * @param {Object|Array} iterator.obj the source object
+       * @param {Object} context value to use as `this` in the iterator
+       */
+      each: function each(obj, iterator, context) {
+          var i, len;
+
+          // native forEach on arrays
+          if('forEach' in obj) {
+              obj.forEach(iterator, context);
+          // arrays
+          } else if(obj.length !== undefined) {
+              for(i = 0, len = obj.length; i < len; i++) {
+                  if(iterator.call(context, obj[i], i, obj) === false) {
+                      return;
+                  }
+              }
+          // objects
+          } else {
+              for(i in obj) {
+                  if(obj.hasOwnProperty(i) &&
+                      iterator.call(context, obj[i], i, obj) === false) {
+                      return;
+                  }
+              }
+          }
+      },
+
+      /**
+       * find if a string contains the string using indexOf
+       * @method inStr
+       * @param {String} src
+       * @param {String} find
+       * @return {Boolean} found
+       */
+      inStr: function inStr(src, find) {
+          return src.indexOf(find) > -1;
+      },
+
+      /**
+       * find if a array contains the object using indexOf or a simple polyfill
+       * @method inArray
+       * @param {String} src
+       * @param {String} find
+       * @return {Boolean|Number} false when not found, or the index
+       */
+      inArray: function inArray(src, find) {
+          if(src.indexOf) {
+              var index = src.indexOf(find);
+              return (index === -1) ? false : index;
+          } else {
+              for(var i = 0, len = src.length; i < len; i++) {
+                  if(src[i] === find) {
+                      return i;
+                  }
+              }
+              return false;
+          }
+      },
+
+      /**
+       * convert an array-like object (`arguments`, `touchlist`) to an array
+       * @method toArray
+       * @param {Object} obj
+       * @return {Array}
+       */
+      toArray: function toArray(obj) {
+          return Array.prototype.slice.call(obj, 0);
+      },
+
+      /**
+       * find if a node is in the given parent
+       * @method hasParent
+       * @param {HTMLElement} node
+       * @param {HTMLElement} parent
+       * @return {Boolean} found
+       */
+      hasParent: function hasParent(node, parent) {
+          while(node) {
+              if(node == parent) {
+                  return true;
+              }
+              node = node.parentNode;
+          }
+          return false;
+      },
+
+      /**
+       * get the center of all the touches
+       * @method getCenter
+       * @param {Array} touches
+       * @return {Object} center contains `pageX`, `pageY`, `clientX` and `clientY` properties
+       */
+      getCenter: function getCenter(touches) {
+          var pageX = [],
+              pageY = [],
+              clientX = [],
+              clientY = [],
+              min = Math.min,
+              max = Math.max;
+
+          // no need to loop when only one touch
+          if(touches.length === 1) {
+              return {
+                  pageX: touches[0].pageX,
+                  pageY: touches[0].pageY,
+                  clientX: touches[0].clientX,
+                  clientY: touches[0].clientY
+              };
+          }
+
+          Utils.each(touches, function(touch) {
+              pageX.push(touch.pageX);
+              pageY.push(touch.pageY);
+              clientX.push(touch.clientX);
+              clientY.push(touch.clientY);
+          });
+
+          return {
+              pageX: (min.apply(Math, pageX) + max.apply(Math, pageX)) / 2,
+              pageY: (min.apply(Math, pageY) + max.apply(Math, pageY)) / 2,
+              clientX: (min.apply(Math, clientX) + max.apply(Math, clientX)) / 2,
+              clientY: (min.apply(Math, clientY) + max.apply(Math, clientY)) / 2
+          };
+      },
+
+      /**
+       * calculate the velocity between two points. unit is in px per ms.
+       * @method getVelocity
+       * @param {Number} deltaTime
+       * @param {Number} deltaX
+       * @param {Number} deltaY
+       * @return {Object} velocity `x` and `y`
+       */
+      getVelocity: function getVelocity(deltaTime, deltaX, deltaY) {
+          return {
+              x: Math.abs(deltaX / deltaTime) || 0,
+              y: Math.abs(deltaY / deltaTime) || 0
+          };
+      },
+
+      /**
+       * calculate the angle between two coordinates
+       * @method getAngle
+       * @param {Touch} touch1
+       * @param {Touch} touch2
+       * @return {Number} angle
+       */
+      getAngle: function getAngle(touch1, touch2) {
+          var x = touch2.clientX - touch1.clientX,
+              y = touch2.clientY - touch1.clientY;
+
+          return Math.atan2(y, x) * 180 / Math.PI;
+      },
+
+      /**
+       * do a small comparision to get the direction between two touches.
+       * @method getDirection
+       * @param {Touch} touch1
+       * @param {Touch} touch2
+       * @return {String} direction matches `DIRECTION_LEFT|RIGHT|UP|DOWN`
+       */
+      getDirection: function getDirection(touch1, touch2) {
+          var x = Math.abs(touch1.clientX - touch2.clientX),
+              y = Math.abs(touch1.clientY - touch2.clientY);
+
+          if(x >= y) {
+              return touch1.clientX - touch2.clientX > 0 ? DIRECTION_LEFT : DIRECTION_RIGHT;
+          }
+          return touch1.clientY - touch2.clientY > 0 ? DIRECTION_UP : DIRECTION_DOWN;
+      },
+
+      /**
+       * calculate the distance between two touches
+       * @method getDistance
+       * @param {Touch}touch1
+       * @param {Touch} touch2
+       * @return {Number} distance
+       */
+      getDistance: function getDistance(touch1, touch2) {
+          var x = touch2.clientX - touch1.clientX,
+              y = touch2.clientY - touch1.clientY;
+
+          return Math.sqrt((x * x) + (y * y));
+      },
+
+      /**
+       * calculate the scale factor between two touchLists
+       * no scale is 1, and goes down to 0 when pinched together, and bigger when pinched out
+       * @method getScale
+       * @param {Array} start array of touches
+       * @param {Array} end array of touches
+       * @return {Number} scale
+       */
+      getScale: function getScale(start, end) {
+          // need two fingers...
+          if(start.length >= 2 && end.length >= 2) {
+              return this.getDistance(end[0], end[1]) / this.getDistance(start[0], start[1]);
+          }
+          return 1;
+      },
+
+      /**
+       * calculate the rotation degrees between two touchLists
+       * @method getRotation
+       * @param {Array} start array of touches
+       * @param {Array} end array of touches
+       * @return {Number} rotation
+       */
+      getRotation: function getRotation(start, end) {
+          // need two fingers
+          if(start.length >= 2 && end.length >= 2) {
+              return this.getAngle(end[1], end[0]) - this.getAngle(start[1], start[0]);
+          }
+          return 0;
+      },
+
+      /**
+       * find out if the direction is vertical   *
+       * @method isVertical
+       * @param {String} direction matches `DIRECTION_UP|DOWN`
+       * @return {Boolean} is_vertical
+       */
+      isVertical: function isVertical(direction) {
+          return direction == DIRECTION_UP || direction == DIRECTION_DOWN;
+      },
+
+      /**
+       * set css properties with their prefixes
+       * @param {HTMLElement} element
+       * @param {String} prop
+       * @param {String} value
+       * @param {Boolean} [toggle=true]
+       * @return {Boolean}
+       */
+      setPrefixedCss: function setPrefixedCss(element, prop, value, toggle) {
+          var prefixes = ['', 'Webkit', 'Moz', 'O', 'ms'];
+          prop = Utils.toCamelCase(prop);
+
+          for(var i = 0; i < prefixes.length; i++) {
+              var p = prop;
+              // prefixes
+              if(prefixes[i]) {
+                  p = prefixes[i] + p.slice(0, 1).toUpperCase() + p.slice(1);
+              }
+
+              // test the style
+              if(p in element.style) {
+                  element.style[p] = (toggle == null || toggle) && value || '';
+                  break;
+              }
+          }
+      },
+
+      /**
+       * toggle browser default behavior by setting css properties.
+       * `userSelect='none'` also sets `element.onselectstart` to false
+       * `userDrag='none'` also sets `element.ondragstart` to false
+       *
+       * @method toggleBehavior
+       * @param {HtmlElement} element
+       * @param {Object} props
+       * @param {Boolean} [toggle=true]
+       */
+      toggleBehavior: function toggleBehavior(element, props, toggle) {
+          if(!props || !element || !element.style) {
+              return;
+          }
+
+          // set the css properties
+          Utils.each(props, function(value, prop) {
+              Utils.setPrefixedCss(element, prop, value, toggle);
+          });
+
+          var falseFn = toggle && function() {
+              return false;
+          };
+
+          // also the disable onselectstart
+          if(props.userSelect == 'none') {
+              element.onselectstart = falseFn;
+          }
+          // and disable ondragstart
+          if(props.userDrag == 'none') {
+              element.ondragstart = falseFn;
+          }
+      },
+
+      /**
+       * convert a string with underscores to camelCase
+       * so prevent_default becomes preventDefault
+       * @param {String} str
+       * @return {String} camelCaseStr
+       */
+      toCamelCase: function toCamelCase(str) {
+          return str.replace(/[_-]([a-z])/g, function(s) {
+              return s[1].toUpperCase();
+          });
+      }
+  };
+
+
+  /**
+   * @module hammer
+   */
+  /**
+   * @class Event
+   * @static
+   */
+  var Event = Hammer.event = {
+      /**
+       * when touch events have been fired, this is true
+       * this is used to stop mouse events
+       * @property prevent_mouseevents
+       * @private
+       * @type {Boolean}
+       */
+      preventMouseEvents: false,
+
+      /**
+       * if EVENT_START has been fired
+       * @property started
+       * @private
+       * @type {Boolean}
+       */
+      started: false,
+
+      /**
+       * when the mouse is hold down, this is true
+       * @property should_detect
+       * @private
+       * @type {Boolean}
+       */
+      shouldDetect: false,
+
+      /**
+       * simple event binder with a hook and support for multiple types
+       * @method on
+       * @param {HTMLElement} element
+       * @param {String} type
+       * @param {Function} handler
+       * @param {Function} [hook]
+       * @param {Object} hook.type
+       */
+      on: function on(element, type, handler, hook) {
+          var types = type.split(' ');
+          Utils.each(types, function(type) {
+              Utils.on(element, type, handler);
+              hook && hook(type);
+          });
+      },
+
+      /**
+       * simple event unbinder with a hook and support for multiple types
+       * @method off
+       * @param {HTMLElement} element
+       * @param {String} type
+       * @param {Function} handler
+       * @param {Function} [hook]
+       * @param {Object} hook.type
+       */
+      off: function off(element, type, handler, hook) {
+          var types = type.split(' ');
+          Utils.each(types, function(type) {
+              Utils.off(element, type, handler);
+              hook && hook(type);
+          });
+      },
+
+      /**
+       * the core touch event handler.
+       * this finds out if we should to detect gestures
+       * @method onTouch
+       * @param {HTMLElement} element
+       * @param {String} eventType matches `EVENT_START|MOVE|END`
+       * @param {Function} handler
+       * @return onTouchHandler {Function} the core event handler
+       */
+      onTouch: function onTouch(element, eventType, handler) {
+          var self = this;
+
+          var onTouchHandler = function onTouchHandler(ev) {
+              var srcType = ev.type.toLowerCase(),
+                  isPointer = Hammer.HAS_POINTEREVENTS,
+                  isMouse = Utils.inStr(srcType, 'mouse'),
+                  triggerType;
+
+              // if we are in a mouseevent, but there has been a touchevent triggered in this session
+              // we want to do nothing. simply break out of the event.
+              if(isMouse && self.preventMouseEvents) {
+                  return;
+
+              // mousebutton must be down
+              } else if(isMouse && eventType == EVENT_START && ev.button === 0) {
+                  self.preventMouseEvents = false;
+                  self.shouldDetect = true;
+              } else if(isPointer && eventType == EVENT_START) {
+                  self.shouldDetect = (ev.buttons === 1 || PointerEvent.matchType(POINTER_TOUCH, ev));
+              // just a valid start event, but no mouse
+              } else if(!isMouse && eventType == EVENT_START) {
+                  self.preventMouseEvents = true;
+                  self.shouldDetect = true;
+              }
+
+              // update the pointer event before entering the detection
+              if(isPointer && eventType != EVENT_END) {
+                  PointerEvent.updatePointer(eventType, ev);
+              }
+
+              // we are in a touch/down state, so allowed detection of gestures
+              if(self.shouldDetect) {
+                  triggerType = self.doDetect.call(self, ev, eventType, element, handler);
+              }
+
+              // ...and we are done with the detection
+              // so reset everything to start each detection totally fresh
+              if(triggerType == EVENT_END) {
+                  self.preventMouseEvents = false;
+                  self.shouldDetect = false;
+                  PointerEvent.reset();
+              // update the pointerevent object after the detection
+              }
+
+              if(isPointer && eventType == EVENT_END) {
+                  PointerEvent.updatePointer(eventType, ev);
+              }
+          };
+
+          this.on(element, EVENT_TYPES[eventType], onTouchHandler);
+          return onTouchHandler;
+      },
+
+      /**
+       * the core detection method
+       * this finds out what hammer-touch-events to trigger
+       * @method doDetect
+       * @param {Object} ev
+       * @param {String} eventType matches `EVENT_START|MOVE|END`
+       * @param {HTMLElement} element
+       * @param {Function} handler
+       * @return {String} triggerType matches `EVENT_START|MOVE|END`
+       */
+      doDetect: function doDetect(ev, eventType, element, handler) {
+          var touchList = this.getTouchList(ev, eventType);
+          var touchListLength = touchList.length;
+          var triggerType = eventType;
+          var triggerChange = touchList.trigger; // used by fakeMultitouch plugin
+          var changedLength = touchListLength;
+
+          // at each touchstart-like event we want also want to trigger a TOUCH event...
+          if(eventType == EVENT_START) {
+              triggerChange = EVENT_TOUCH;
+          // ...the same for a touchend-like event
+          } else if(eventType == EVENT_END) {
+              triggerChange = EVENT_RELEASE;
+
+              // keep track of how many touches have been removed
+              changedLength = touchList.length - ((ev.changedTouches) ? ev.changedTouches.length : 1);
+          }
+
+          // after there are still touches on the screen,
+          // we just want to trigger a MOVE event. so change the START or END to a MOVE
+          // but only after detection has been started, the first time we actualy want a START
+          if(changedLength > 0 && this.started) {
+              triggerType = EVENT_MOVE;
+          }
+
+          // detection has been started, we keep track of this, see above
+          this.started = true;
+
+          // generate some event data, some basic information
+          var evData = this.collectEventData(element, triggerType, touchList, ev);
+
+          // trigger the triggerType event before the change (TOUCH, RELEASE) events
+          // but the END event should be at last
+          if(eventType != EVENT_END) {
+              handler.call(Detection, evData);
+          }
+
+          // trigger a change (TOUCH, RELEASE) event, this means the length of the touches changed
+          if(triggerChange) {
+              evData.changedLength = changedLength;
+              evData.eventType = triggerChange;
+
+              handler.call(Detection, evData);
+
+              evData.eventType = triggerType;
+              delete evData.changedLength;
+          }
+
+          // trigger the END event
+          if(triggerType == EVENT_END) {
+              handler.call(Detection, evData);
+
+              // ...and we are done with the detection
+              // so reset everything to start each detection totally fresh
+              this.started = false;
+          }
+
+          return triggerType;
+      },
+
+      /**
+       * we have different events for each device/browser
+       * determine what we need and set them in the EVENT_TYPES constant
+       * the `onTouch` method is bind to these properties.
+       * @method determineEventTypes
+       * @return {Object} events
+       */
+      determineEventTypes: function determineEventTypes() {
+          var types;
+          if(Hammer.HAS_POINTEREVENTS) {
+              if(window.PointerEvent) {
+                  types = [
+                      'pointerdown',
+                      'pointermove',
+                      'pointerup pointercancel lostpointercapture'
+                  ];
+              } else {
+                  types = [
+                      'MSPointerDown',
+                      'MSPointerMove',
+                      'MSPointerUp MSPointerCancel MSLostPointerCapture'
+                  ];
+              }
+          } else if(Hammer.NO_MOUSEEVENTS) {
+              types = [
+                  'touchstart',
+                  'touchmove',
+                  'touchend touchcancel'
+              ];
+          } else {
+              types = [
+                  'touchstart mousedown',
+                  'touchmove mousemove',
+                  'touchend touchcancel mouseup'
+              ];
+          }
+
+          EVENT_TYPES[EVENT_START] = types[0];
+          EVENT_TYPES[EVENT_MOVE] = types[1];
+          EVENT_TYPES[EVENT_END] = types[2];
+          return EVENT_TYPES;
+      },
+
+      /**
+       * create touchList depending on the event
+       * @method getTouchList
+       * @param {Object} ev
+       * @param {String} eventType
+       * @return {Array} touches
+       */
+      getTouchList: function getTouchList(ev, eventType) {
+          // get the fake pointerEvent touchlist
+          if(Hammer.HAS_POINTEREVENTS) {
+              return PointerEvent.getTouchList();
+          }
+
+          // get the touchlist
+          if(ev.touches) {
+              if(eventType == EVENT_MOVE) {
+                  return ev.touches;
+              }
+
+              var identifiers = [];
+              var concat = [].concat(Utils.toArray(ev.touches), Utils.toArray(ev.changedTouches));
+              var touchList = [];
+
+              Utils.each(concat, function(touch) {
+                  if(Utils.inArray(identifiers, touch.identifier) === false) {
+                      touchList.push(touch);
+                  }
+                  identifiers.push(touch.identifier);
+              });
+
+              return touchList;
+          }
+
+          // make fake touchList from mouse position
+          ev.identifier = 1;
+          return [ev];
+      },
+
+      /**
+       * collect basic event data
+       * @method collectEventData
+       * @param {HTMLElement} element
+       * @param {String} eventType matches `EVENT_START|MOVE|END`
+       * @param {Array} touches
+       * @param {Object} ev
+       * @return {Object} ev
+       */
+      collectEventData: function collectEventData(element, eventType, touches, ev) {
+          // find out pointerType
+          var pointerType = POINTER_TOUCH;
+          if(Utils.inStr(ev.type, 'mouse') || PointerEvent.matchType(POINTER_MOUSE, ev)) {
+              pointerType = POINTER_MOUSE;
+          } else if(PointerEvent.matchType(POINTER_PEN, ev)) {
+              pointerType = POINTER_PEN;
+          }
+
+          return {
+              center: Utils.getCenter(touches),
+              timeStamp: Date.now(),
+              target: ev.target,
+              touches: touches,
+              eventType: eventType,
+              pointerType: pointerType,
+              srcEvent: ev,
+
+              /**
+               * prevent the browser default actions
+               * mostly used to disable scrolling of the browser
+               */
+              preventDefault: function() {
+                  var srcEvent = this.srcEvent;
+                  srcEvent.preventManipulation && srcEvent.preventManipulation();
+                  srcEvent.preventDefault && srcEvent.preventDefault();
+              },
+
+              /**
+               * stop bubbling the event up to its parents
+               */
+              stopPropagation: function() {
+                  this.srcEvent.stopPropagation();
+              },
+
+              /**
+               * immediately stop gesture detection
+               * might be useful after a swipe was detected
+               * @return {*}
+               */
+              stopDetect: function() {
+                  return Detection.stopDetect();
+              }
+          };
+      }
+  };
+
+
+  /**
+   * @module hammer
+   *
+   * @class PointerEvent
+   * @static
+   */
+  var PointerEvent = Hammer.PointerEvent = {
+      /**
+       * holds all pointers, by `identifier`
+       * @property pointers
+       * @type {Object}
+       */
+      pointers: {},
+
+      /**
+       * get the pointers as an array
+       * @method getTouchList
+       * @return {Array} touchlist
+       */
+      getTouchList: function getTouchList() {
+          var touchlist = [];
+          // we can use forEach since pointerEvents only is in IE10
+          Utils.each(this.pointers, function(pointer) {
+              touchlist.push(pointer);
+          });
+          return touchlist;
+      },
+
+      /**
+       * update the position of a pointer
+       * @method updatePointer
+       * @param {String} eventType matches `EVENT_START|MOVE|END`
+       * @param {Object} pointerEvent
+       */
+      updatePointer: function updatePointer(eventType, pointerEvent) {
+          if(eventType == EVENT_END || (eventType != EVENT_END && pointerEvent.buttons !== 1)) {
+              delete this.pointers[pointerEvent.pointerId];
+          } else {
+              pointerEvent.identifier = pointerEvent.pointerId;
+              this.pointers[pointerEvent.pointerId] = pointerEvent;
+          }
+      },
+
+      /**
+       * check if ev matches pointertype
+       * @method matchType
+       * @param {String} pointerType matches `POINTER_MOUSE|TOUCH|PEN`
+       * @param {PointerEvent} ev
+       */
+      matchType: function matchType(pointerType, ev) {
+          if(!ev.pointerType) {
+              return false;
+          }
+
+          var pt = ev.pointerType,
+              types = {};
+
+          types[POINTER_MOUSE] = (pt === (ev.MSPOINTER_TYPE_MOUSE || POINTER_MOUSE));
+          types[POINTER_TOUCH] = (pt === (ev.MSPOINTER_TYPE_TOUCH || POINTER_TOUCH));
+          types[POINTER_PEN] = (pt === (ev.MSPOINTER_TYPE_PEN || POINTER_PEN));
+          return types[pointerType];
+      },
+
+      /**
+       * reset the stored pointers
+       * @method reset
+       */
+      reset: function resetList() {
+          this.pointers = {};
+      }
+  };
+
+
+  /**
+   * @module hammer
+   *
+   * @class Detection
+   * @static
+   */
+  var Detection = Hammer.detection = {
+      // contains all registred Hammer.gestures in the correct order
+      gestures: [],
+
+      // data of the current Hammer.gesture detection session
+      current: null,
+
+      // the previous Hammer.gesture session data
+      // is a full clone of the previous gesture.current object
+      previous: null,
+
+      // when this becomes true, no gestures are fired
+      stopped: false,
+
+      /**
+       * start Hammer.gesture detection
+       * @method startDetect
+       * @param {Hammer.Instance} inst
+       * @param {Object} eventData
+       */
+      startDetect: function startDetect(inst, eventData) {
+          // already busy with a Hammer.gesture detection on an element
+          if(this.current) {
+              return;
+          }
+
+          this.stopped = false;
+
+          // holds current session
+          this.current = {
+              inst: inst, // reference to HammerInstance we're working for
+              startEvent: Utils.extend({}, eventData), // start eventData for distances, timing etc
+              lastEvent: false, // last eventData
+              lastCalcEvent: false, // last eventData for calculations.
+              futureCalcEvent: false, // last eventData for calculations.
+              lastCalcData: {}, // last lastCalcData
+              name: '' // current gesture we're in/detected, can be 'tap', 'hold' etc
+          };
+
+          this.detect(eventData);
+      },
+
+      /**
+       * Hammer.gesture detection
+       * @method detect
+       * @param {Object} eventData
+       * @return {any}
+       */
+      detect: function detect(eventData) {
+          if(!this.current || this.stopped) {
+              return;
+          }
+
+          // extend event data with calculations about scale, distance etc
+          eventData = this.extendEventData(eventData);
+
+          // hammer instance and instance options
+          var inst = this.current.inst,
+              instOptions = inst.options;
+
+          // call Hammer.gesture handlers
+          Utils.each(this.gestures, function triggerGesture(gesture) {
+              // only when the instance options have enabled this gesture
+              if(!this.stopped && inst.enabled && instOptions[gesture.name]) {
+                  gesture.handler.call(gesture, eventData, inst);
+              }
+          }, this);
+
+          // store as previous event event
+          if(this.current) {
+              this.current.lastEvent = eventData;
+          }
+
+          if(eventData.eventType == EVENT_END) {
+              this.stopDetect();
+          }
+
+          return eventData;
+      },
+
+      /**
+       * clear the Hammer.gesture vars
+       * this is called on endDetect, but can also be used when a final Hammer.gesture has been detected
+       * to stop other Hammer.gestures from being fired
+       * @method stopDetect
+       */
+      stopDetect: function stopDetect() {
+          // clone current data to the store as the previous gesture
+          // used for the double tap gesture, since this is an other gesture detect session
+          this.previous = Utils.extend({}, this.current);
+
+          // reset the current
+          this.current = null;
+          this.stopped = true;
+      },
+
+      /**
+       * calculate velocity, angle and direction
+       * @method getVelocityData
+       * @param {Object} ev
+       * @param {Object} center
+       * @param {Number} deltaTime
+       * @param {Number} deltaX
+       * @param {Number} deltaY
+       */
+      getCalculatedData: function getCalculatedData(ev, center, deltaTime, deltaX, deltaY) {
+          var cur = this.current,
+              recalc = false,
+              calcEv = cur.lastCalcEvent,
+              calcData = cur.lastCalcData;
+
+          if(calcEv && ev.timeStamp - calcEv.timeStamp > Hammer.CALCULATE_INTERVAL) {
+              center = calcEv.center;
+              deltaTime = ev.timeStamp - calcEv.timeStamp;
+              deltaX = ev.center.clientX - calcEv.center.clientX;
+              deltaY = ev.center.clientY - calcEv.center.clientY;
+              recalc = true;
+          }
+
+          if(ev.eventType == EVENT_TOUCH || ev.eventType == EVENT_RELEASE) {
+              cur.futureCalcEvent = ev;
+          }
+
+          if(!cur.lastCalcEvent || recalc) {
+              calcData.velocity = Utils.getVelocity(deltaTime, deltaX, deltaY);
+              calcData.angle = Utils.getAngle(center, ev.center);
+              calcData.direction = Utils.getDirection(center, ev.center);
+
+              cur.lastCalcEvent = cur.futureCalcEvent || ev;
+              cur.futureCalcEvent = ev;
+          }
+
+          ev.velocityX = calcData.velocity.x;
+          ev.velocityY = calcData.velocity.y;
+          ev.interimAngle = calcData.angle;
+          ev.interimDirection = calcData.direction;
+      },
+
+      /**
+       * extend eventData for Hammer.gestures
+       * @method extendEventData
+       * @param {Object} ev
+       * @return {Object} ev
+       */
+      extendEventData: function extendEventData(ev) {
+          var cur = this.current,
+              startEv = cur.startEvent,
+              lastEv = cur.lastEvent || startEv;
+
+          // update the start touchlist to calculate the scale/rotation
+          if(ev.eventType == EVENT_TOUCH || ev.eventType == EVENT_RELEASE) {
+              startEv.touches = [];
+              Utils.each(ev.touches, function(touch) {
+                  startEv.touches.push({
+                      clientX: touch.clientX,
+                      clientY: touch.clientY
+                  });
+              });
+          }
+
+          var deltaTime = ev.timeStamp - startEv.timeStamp,
+              deltaX = ev.center.clientX - startEv.center.clientX,
+              deltaY = ev.center.clientY - startEv.center.clientY;
+
+          this.getCalculatedData(ev, lastEv.center, deltaTime, deltaX, deltaY);
+
+          Utils.extend(ev, {
+              startEvent: startEv,
+
+              deltaTime: deltaTime,
+              deltaX: deltaX,
+              deltaY: deltaY,
+
+              distance: Utils.getDistance(startEv.center, ev.center),
+              angle: Utils.getAngle(startEv.center, ev.center),
+              direction: Utils.getDirection(startEv.center, ev.center),
+              scale: Utils.getScale(startEv.touches, ev.touches),
+              rotation: Utils.getRotation(startEv.touches, ev.touches)
+          });
+
+          return ev;
+      },
+
+      /**
+       * register new gesture
+       * @method register
+       * @param {Object} gesture object, see `gestures/` for documentation
+       * @return {Array} gestures
+       */
+      register: function register(gesture) {
+          // add an enable gesture options if there is no given
+          var options = gesture.defaults || {};
+          if(options[gesture.name] === undefined) {
+              options[gesture.name] = true;
+          }
+
+          // extend Hammer default options with the Hammer.gesture options
+          Utils.extend(Hammer.defaults, options, true);
+
+          // set its index
+          gesture.index = gesture.index || 1000;
+
+          // add Hammer.gesture to the list
+          this.gestures.push(gesture);
+
+          // sort the list by index
+          this.gestures.sort(function(a, b) {
+              if(a.index < b.index) {
+                  return -1;
+              }
+              if(a.index > b.index) {
+                  return 1;
+              }
+              return 0;
+          });
+
+          return this.gestures;
+      }
+  };
+
+
+  /**
+   * @module hammer
+   */
+
+  /**
+   * create new hammer instance
+   * all methods should return the instance itself, so it is chainable.
+   *
+   * @class Instance
+   * @constructor
+   * @param {HTMLElement} element
+   * @param {Object} [options={}] options are merged with `Hammer.defaults`
+   * @return {Hammer.Instance}
+   */
+  Hammer.Instance = function(element, options) {
+      var self = this;
+
+      // setup HammerJS window events and register all gestures
+      // this also sets up the default options
+      setup();
+
+      /**
+       * @property element
+       * @type {HTMLElement}
+       */
+      this.element = element;
+
+      /**
+       * @property enabled
+       * @type {Boolean}
+       * @protected
+       */
+      this.enabled = true;
+
+      /**
+       * options, merged with the defaults
+       * options with an _ are converted to camelCase
+       * @property options
+       * @type {Object}
+       */
+      Utils.each(options, function(value, name) {
+          delete options[name];
+          options[Utils.toCamelCase(name)] = value;
+      });
+
+      this.options = Utils.extend(Utils.extend({}, Hammer.defaults), options || {});
+
+      // add some css to the element to prevent the browser from doing its native behavoir
+      if(this.options.behavior) {
+          Utils.toggleBehavior(this.element, this.options.behavior, true);
+      }
+
+      /**
+       * event start handler on the element to start the detection
+       * @property eventStartHandler
+       * @type {Object}
+       */
+      this.eventStartHandler = Event.onTouch(element, EVENT_START, function(ev) {
+          if(self.enabled && ev.eventType == EVENT_START) {
+              Detection.startDetect(self, ev);
+          } else if(ev.eventType == EVENT_TOUCH) {
+              Detection.detect(ev);
+          }
+      });
+
+      /**
+       * keep a list of user event handlers which needs to be removed when calling 'dispose'
+       * @property eventHandlers
+       * @type {Array}
+       */
+      this.eventHandlers = [];
+  };
+
+  Hammer.Instance.prototype = {
+      /**
+       * bind events to the instance
+       * @method on
+       * @chainable
+       * @param {String} gestures multiple gestures by splitting with a space
+       * @param {Function} handler
+       * @param {Object} handler.ev event object
+       */
+      on: function onEvent(gestures, handler) {
+          var self = this;
+          Event.on(self.element, gestures, handler, function(type) {
+              self.eventHandlers.push({ gesture: type, handler: handler });
+          });
+          return self;
+      },
+
+      /**
+       * unbind events to the instance
+       * @method off
+       * @chainable
+       * @param {String} gestures
+       * @param {Function} handler
+       */
+      off: function offEvent(gestures, handler) {
+          var self = this;
+
+          Event.off(self.element, gestures, handler, function(type) {
+              var index = Utils.inArray({ gesture: type, handler: handler });
+              if(index !== false) {
+                  self.eventHandlers.splice(index, 1);
+              }
+          });
+          return self;
+      },
+
+      /**
+       * trigger gesture event
+       * @method trigger
+       * @chainable
+       * @param {String} gesture
+       * @param {Object} [eventData]
+       */
+      trigger: function triggerEvent(gesture, eventData) {
+          // optional
+          if(!eventData) {
+              eventData = {};
+          }
+
+          // create DOM event
+          var event = Hammer.DOCUMENT.createEvent('Event');
+          event.initEvent(gesture, true, true);
+          event.gesture = eventData;
+
+          // trigger on the target if it is in the instance element,
+          // this is for event delegation tricks
+          var element = this.element;
+          if(Utils.hasParent(eventData.target, element)) {
+              element = eventData.target;
+          }
+
+          element.dispatchEvent(event);
+          return this;
+      },
+
+      /**
+       * enable of disable hammer.js detection
+       * @method enable
+       * @chainable
+       * @param {Boolean} state
+       */
+      enable: function enable(state) {
+          this.enabled = state;
+          return this;
+      },
+
+      /**
+       * dispose this hammer instance
+       * @method dispose
+       * @return {Null}
+       */
+      dispose: function dispose() {
+          var i, eh;
+
+          // undo all changes made by stop_browser_behavior
+          Utils.toggleBehavior(this.element, this.options.behavior, false);
+
+          // unbind all custom event handlers
+          for(i = -1; (eh = this.eventHandlers[++i]);) {
+              Utils.off(this.element, eh.gesture, eh.handler);
+          }
+
+          this.eventHandlers = [];
+
+          // unbind the start event listener
+          Event.off(this.element, EVENT_TYPES[EVENT_START], this.eventStartHandler);
+
+          return null;
+      }
+  };
+
+
+  /**
+   * @module gestures
+   */
+  /**
+   * Move with x fingers (default 1) around on the page.
+   * Preventing the default browser behavior is a good way to improve feel and working.
+   * ````
+   *  hammertime.on("drag", function(ev) {
+   *    console.log(ev);
+   *    ev.gesture.preventDefault();
+   *  });
+   * ````
+   *
+   * @class Drag
+   * @static
+   */
+  /**
+   * @event drag
+   * @param {Object} ev
+   */
+  /**
+   * @event dragstart
+   * @param {Object} ev
+   */
+  /**
+   * @event dragend
+   * @param {Object} ev
+   */
+  /**
+   * @event drapleft
+   * @param {Object} ev
+   */
+  /**
+   * @event dragright
+   * @param {Object} ev
+   */
+  /**
+   * @event dragup
+   * @param {Object} ev
+   */
+  /**
+   * @event dragdown
+   * @param {Object} ev
+   */
+
+  /**
+   * @param {String} name
+   */
+  (function(name) {
+      var triggered = false;
+
+      function dragGesture(ev, inst) {
+          var cur = Detection.current;
+
+          // max touches
+          if(inst.options.dragMaxTouches > 0 &&
+              ev.touches.length > inst.options.dragMaxTouches) {
+              return;
+          }
+
+          switch(ev.eventType) {
+              case EVENT_START:
+                  triggered = false;
+                  break;
+
+              case EVENT_MOVE:
+                  // when the distance we moved is too small we skip this gesture
+                  // or we can be already in dragging
+                  if(ev.distance < inst.options.dragMinDistance &&
+                      cur.name != name) {
+                      return;
+                  }
+
+                  var startCenter = cur.startEvent.center;
+
+                  // we are dragging!
+                  if(cur.name != name) {
+                      cur.name = name;
+                      if(inst.options.dragDistanceCorrection && ev.distance > 0) {
+                          // When a drag is triggered, set the event center to dragMinDistance pixels from the original event center.
+                          // Without this correction, the dragged distance would jumpstart at dragMinDistance pixels instead of at 0.
+                          // It might be useful to save the original start point somewhere
+                          var factor = Math.abs(inst.options.dragMinDistance / ev.distance);
+                          startCenter.pageX += ev.deltaX * factor;
+                          startCenter.pageY += ev.deltaY * factor;
+                          startCenter.clientX += ev.deltaX * factor;
+                          startCenter.clientY += ev.deltaY * factor;
+
+                          // recalculate event data using new start point
+                          ev = Detection.extendEventData(ev);
+                      }
+                  }
+
+                  // lock drag to axis?
+                  if(cur.lastEvent.dragLockToAxis ||
+                      ( inst.options.dragLockToAxis &&
+                          inst.options.dragLockMinDistance <= ev.distance
+                          )) {
+                      ev.dragLockToAxis = true;
+                  }
+
+                  // keep direction on the axis that the drag gesture started on
+                  var lastDirection = cur.lastEvent.direction;
+                  if(ev.dragLockToAxis && lastDirection !== ev.direction) {
+                      if(Utils.isVertical(lastDirection)) {
+                          ev.direction = (ev.deltaY < 0) ? DIRECTION_UP : DIRECTION_DOWN;
+                      } else {
+                          ev.direction = (ev.deltaX < 0) ? DIRECTION_LEFT : DIRECTION_RIGHT;
+                      }
+                  }
+
+                  // first time, trigger dragstart event
+                  if(!triggered) {
+                      inst.trigger(name + 'start', ev);
+                      triggered = true;
+                  }
+
+                  // trigger events
+                  inst.trigger(name, ev);
+                  inst.trigger(name + ev.direction, ev);
+
+                  var isVertical = Utils.isVertical(ev.direction);
+
+                  // block the browser events
+                  if((inst.options.dragBlockVertical && isVertical) ||
+                      (inst.options.dragBlockHorizontal && !isVertical)) {
+                      ev.preventDefault();
+                  }
+                  break;
+
+              case EVENT_RELEASE:
+                  if(triggered && ev.changedLength <= inst.options.dragMaxTouches) {
+                      inst.trigger(name + 'end', ev);
+                      triggered = false;
+                  }
+                  break;
+
+              case EVENT_END:
+                  triggered = false;
+                  break;
+          }
+      }
+
+      Hammer.gestures.Drag = {
+          name: name,
+          index: 50,
+          handler: dragGesture,
+          defaults: {
+              /**
+               * minimal movement that have to be made before the drag event gets triggered
+               * @property dragMinDistance
+               * @type {Number}
+               * @default 10
+               */
+              dragMinDistance: 10,
+
+              /**
+               * Set dragDistanceCorrection to true to make the starting point of the drag
+               * be calculated from where the drag was triggered, not from where the touch started.
+               * Useful to avoid a jerk-starting drag, which can make fine-adjustments
+               * through dragging difficult, and be visually unappealing.
+               * @property dragDistanceCorrection
+               * @type {Boolean}
+               * @default true
+               */
+              dragDistanceCorrection: true,
+
+              /**
+               * set 0 for unlimited, but this can conflict with transform
+               * @property dragMaxTouches
+               * @type {Number}
+               * @default 1
+               */
+              dragMaxTouches: 1,
+
+              /**
+               * prevent default browser behavior when dragging occurs
+               * be careful with it, it makes the element a blocking element
+               * when you are using the drag gesture, it is a good practice to set this true
+               * @property dragBlockHorizontal
+               * @type {Boolean}
+               * @default false
+               */
+              dragBlockHorizontal: false,
+
+              /**
+               * same as `dragBlockHorizontal`, but for vertical movement
+               * @property dragBlockVertical
+               * @type {Boolean}
+               * @default false
+               */
+              dragBlockVertical: false,
+
+              /**
+               * dragLockToAxis keeps the drag gesture on the axis that it started on,
+               * It disallows vertical directions if the initial direction was horizontal, and vice versa.
+               * @property dragLockToAxis
+               * @type {Boolean}
+               * @default false
+               */
+              dragLockToAxis: false,
+
+              /**
+               * drag lock only kicks in when distance > dragLockMinDistance
+               * This way, locking occurs only when the distance has become large enough to reliably determine the direction
+               * @property dragLockMinDistance
+               * @type {Number}
+               * @default 25
+               */
+              dragLockMinDistance: 25
+          }
+      };
+  })('drag');
+
+  /**
+   * @module gestures
+   */
+  /**
+   * trigger a simple gesture event, so you can do anything in your handler.
+   * only usable if you know what your doing...
+   *
+   * @class Gesture
+   * @static
+   */
+  /**
+   * @event gesture
+   * @param {Object} ev
+   */
+  Hammer.gestures.Gesture = {
+      name: 'gesture',
+      index: 1337,
+      handler: function releaseGesture(ev, inst) {
+          inst.trigger(this.name, ev);
+      }
+  };
+
+  /**
+   * @module gestures
+   */
+  /**
+   * Touch stays at the same place for x time
+   *
+   * @class Hold
+   * @static
+   */
+  /**
+   * @event hold
+   * @param {Object} ev
+   */
+
+  /**
+   * @param {String} name
+   */
+  (function(name) {
+      var timer;
+
+      function holdGesture(ev, inst) {
+          var options = inst.options,
+              current = Detection.current;
+
+          switch(ev.eventType) {
+              case EVENT_START:
+                  clearTimeout(timer);
+
+                  // set the gesture so we can check in the timeout if it still is
+                  current.name = name;
+
+                  // set timer and if after the timeout it still is hold,
+                  // we trigger the hold event
+                  timer = setTimeout(function() {
+                      if(current && current.name == name) {
+                          inst.trigger(name, ev);
+                      }
+                  }, options.holdTimeout);
+                  break;
+
+              case EVENT_MOVE:
+                  if(ev.distance > options.holdThreshold) {
+                      clearTimeout(timer);
+                  }
+                  break;
+
+              case EVENT_RELEASE:
+                  clearTimeout(timer);
+                  break;
+          }
+      }
+
+      Hammer.gestures.Hold = {
+          name: name,
+          index: 10,
+          defaults: {
+              /**
+               * @property holdTimeout
+               * @type {Number}
+               * @default 500
+               */
+              holdTimeout: 500,
+
+              /**
+               * movement allowed while holding
+               * @property holdThreshold
+               * @type {Number}
+               * @default 2
+               */
+              holdThreshold: 2
+          },
+          handler: holdGesture
+      };
+  })('hold');
+
+  /**
+   * @module gestures
+   */
+  /**
+   * when a touch is being released from the page
+   *
+   * @class Release
+   * @static
+   */
+  /**
+   * @event release
+   * @param {Object} ev
+   */
+  Hammer.gestures.Release = {
+      name: 'release',
+      index: Infinity,
+      handler: function releaseGesture(ev, inst) {
+          if(ev.eventType == EVENT_RELEASE) {
+              inst.trigger(this.name, ev);
+          }
+      }
+  };
+
+  /**
+   * @module gestures
+   */
+  /**
+   * triggers swipe events when the end velocity is above the threshold
+   * for best usage, set `preventDefault` (on the drag gesture) to `true`
+   * ````
+   *  hammertime.on("dragleft swipeleft", function(ev) {
+   *    console.log(ev);
+   *    ev.gesture.preventDefault();
+   *  });
+   * ````
+   *
+   * @class Swipe
+   * @static
+   */
+  /**
+   * @event swipe
+   * @param {Object} ev
+   */
+  /**
+   * @event swipeleft
+   * @param {Object} ev
+   */
+  /**
+   * @event swiperight
+   * @param {Object} ev
+   */
+  /**
+   * @event swipeup
+   * @param {Object} ev
+   */
+  /**
+   * @event swipedown
+   * @param {Object} ev
+   */
+  Hammer.gestures.Swipe = {
+      name: 'swipe',
+      index: 40,
+      defaults: {
+          /**
+           * @property swipeMinTouches
+           * @type {Number}
+           * @default 1
+           */
+          swipeMinTouches: 1,
+
+          /**
+           * @property swipeMaxTouches
+           * @type {Number}
+           * @default 1
+           */
+          swipeMaxTouches: 1,
+
+          /**
+           * horizontal swipe velocity
+           * @property swipeVelocityX
+           * @type {Number}
+           * @default 0.6
+           */
+          swipeVelocityX: 0.6,
+
+          /**
+           * vertical swipe velocity
+           * @property swipeVelocityY
+           * @type {Number}
+           * @default 0.6
+           */
+          swipeVelocityY: 0.6
+      },
+
+      handler: function swipeGesture(ev, inst) {
+          if(ev.eventType == EVENT_RELEASE) {
+              var touches = ev.touches.length,
+                  options = inst.options;
+
+              // max touches
+              if(touches < options.swipeMinTouches ||
+                  touches > options.swipeMaxTouches) {
+                  return;
+              }
+
+              // when the distance we moved is too small we skip this gesture
+              // or we can be already in dragging
+              if(ev.velocityX > options.swipeVelocityX ||
+                  ev.velocityY > options.swipeVelocityY) {
+                  // trigger swipe events
+                  inst.trigger(this.name, ev);
+                  inst.trigger(this.name + ev.direction, ev);
+              }
+          }
+      }
+  };
+
+  /**
+   * @module gestures
+   */
+  /**
+   * Single tap and a double tap on a place
+   *
+   * @class Tap
+   * @static
+   */
+  /**
+   * @event tap
+   * @param {Object} ev
+   */
+  /**
+   * @event doubletap
+   * @param {Object} ev
+   */
+
+  /**
+   * @param {String} name
+   */
+  (function(name) {
+      var hasMoved = false;
+
+      function tapGesture(ev, inst) {
+          var options = inst.options,
+              current = Detection.current,
+              prev = Detection.previous,
+              sincePrev,
+              didDoubleTap;
+
+          switch(ev.eventType) {
+              case EVENT_START:
+                  hasMoved = false;
+                  break;
+
+              case EVENT_MOVE:
+                  hasMoved = hasMoved || (ev.distance > options.tapMaxDistance);
+                  break;
+
+              case EVENT_END:
+                  if(!Utils.inStr(ev.srcEvent.type, 'cancel') && ev.deltaTime < options.tapMaxTime && !hasMoved) {
+                      // previous gesture, for the double tap since these are two different gesture detections
+                      sincePrev = prev && prev.lastEvent && ev.timeStamp - prev.lastEvent.timeStamp;
+                      didDoubleTap = false;
+
+                      // check if double tap
+                      if(prev && prev.name == name &&
+                          (sincePrev && sincePrev < options.doubleTapInterval) &&
+                          ev.distance < options.doubleTapDistance) {
+                          inst.trigger('doubletap', ev);
+                          didDoubleTap = true;
+                      }
+
+                      // do a single tap
+                      if(!didDoubleTap || options.tapAlways) {
+                          current.name = name;
+                          inst.trigger(current.name, ev);
+                      }
+                  }
+                  break;
+          }
+      }
+
+      Hammer.gestures.Tap = {
+          name: name,
+          index: 100,
+          handler: tapGesture,
+          defaults: {
+              /**
+               * max time of a tap, this is for the slow tappers
+               * @property tapMaxTime
+               * @type {Number}
+               * @default 250
+               */
+              tapMaxTime: 250,
+
+              /**
+               * max distance of movement of a tap, this is for the slow tappers
+               * @property tapMaxDistance
+               * @type {Number}
+               * @default 10
+               */
+              tapMaxDistance: 10,
+
+              /**
+               * always trigger the `tap` event, even while double-tapping
+               * @property tapAlways
+               * @type {Boolean}
+               * @default true
+               */
+              tapAlways: true,
+
+              /**
+               * max distance between two taps
+               * @property doubleTapDistance
+               * @type {Number}
+               * @default 20
+               */
+              doubleTapDistance: 20,
+
+              /**
+               * max time between two taps
+               * @property doubleTapInterval
+               * @type {Number}
+               * @default 300
+               */
+              doubleTapInterval: 300
+          }
+      };
+  })('tap');
+
+  /**
+   * @module gestures
+   */
+  /**
+   * when a touch is being touched at the page
+   *
+   * @class Touch
+   * @static
+   */
+  /**
+   * @event touch
+   * @param {Object} ev
+   */
+  Hammer.gestures.Touch = {
+      name: 'touch',
+      index: -Infinity,
+      defaults: {
+          /**
+           * call preventDefault at touchstart, and makes the element blocking by disabling the scrolling of the page,
+           * but it improves gestures like transforming and dragging.
+           * be careful with using this, it can be very annoying for users to be stuck on the page
+           * @property preventDefault
+           * @type {Boolean}
+           * @default false
+           */
+          preventDefault: false,
+
+          /**
+           * disable mouse events, so only touch (or pen!) input triggers events
+           * @property preventMouse
+           * @type {Boolean}
+           * @default false
+           */
+          preventMouse: false
+      },
+      handler: function touchGesture(ev, inst) {
+          if(inst.options.preventMouse && ev.pointerType == POINTER_MOUSE) {
+              ev.stopDetect();
+              return;
+          }
+
+          if(inst.options.preventDefault) {
+              ev.preventDefault();
+          }
+
+          if(ev.eventType == EVENT_TOUCH) {
+              inst.trigger('touch', ev);
+          }
+      }
+  };
+
+  /**
+   * @module gestures
+   */
+  /**
+   * User want to scale or rotate with 2 fingers
+   * Preventing the default browser behavior is a good way to improve feel and working. This can be done with the
+   * `preventDefault` option.
+   *
+   * @class Transform
+   * @static
+   */
+  /**
+   * @event transform
+   * @param {Object} ev
+   */
+  /**
+   * @event transformstart
+   * @param {Object} ev
+   */
+  /**
+   * @event transformend
+   * @param {Object} ev
+   */
+  /**
+   * @event pinchin
+   * @param {Object} ev
+   */
+  /**
+   * @event pinchout
+   * @param {Object} ev
+   */
+  /**
+   * @event rotate
+   * @param {Object} ev
+   */
+
+  /**
+   * @param {String} name
+   */
+  (function(name) {
+      var triggered = false;
+
+      function transformGesture(ev, inst) {
+          switch(ev.eventType) {
+              case EVENT_START:
+                  triggered = false;
+                  break;
+
+              case EVENT_MOVE:
+                  // at least multitouch
+                  if(ev.touches.length < 2) {
+                      return;
+                  }
+
+                  var scaleThreshold = Math.abs(1 - ev.scale);
+                  var rotationThreshold = Math.abs(ev.rotation);
+
+                  // when the distance we moved is too small we skip this gesture
+                  // or we can be already in dragging
+                  if(scaleThreshold < inst.options.transformMinScale &&
+                      rotationThreshold < inst.options.transformMinRotation) {
+                      return;
+                  }
+
+                  // we are transforming!
+                  Detection.current.name = name;
+
+                  // first time, trigger dragstart event
+                  if(!triggered) {
+                      inst.trigger(name + 'start', ev);
+                      triggered = true;
+                  }
+
+                  inst.trigger(name, ev); // basic transform event
+
+                  // trigger rotate event
+                  if(rotationThreshold > inst.options.transformMinRotation) {
+                      inst.trigger('rotate', ev);
+                  }
+
+                  // trigger pinch event
+                  if(scaleThreshold > inst.options.transformMinScale) {
+                      inst.trigger('pinch', ev);
+                      inst.trigger('pinch' + (ev.scale < 1 ? 'in' : 'out'), ev);
+                  }
+                  break;
+
+              case EVENT_RELEASE:
+                  if(triggered && ev.changedLength < 2) {
+                      inst.trigger(name + 'end', ev);
+                      triggered = false;
+                  }
+                  break;
+          }
+      }
+
+      Hammer.gestures.Transform = {
+          name: name,
+          index: 45,
+          defaults: {
+              /**
+               * minimal scale factor, no scale is 1, zoomin is to 0 and zoomout until higher then 1
+               * @property transformMinScale
+               * @type {Number}
+               * @default 0.01
+               */
+              transformMinScale: 0.01,
+
+              /**
+               * rotation in degrees
+               * @property transformMinRotation
+               * @type {Number}
+               * @default 1
+               */
+              transformMinRotation: 1
+          },
+
+          handler: transformGesture
+      };
+  })('transform');
+
+  /**
+   * @module hammer
+   */
+
+  // AMD export
+  if(true) {
+      !(__WEBPACK_AMD_DEFINE_RESULT__ = function() {
+          return Hammer;
+      }.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+  // commonjs export
+  } else if(typeof module !== 'undefined' && module.exports) {
+      module.exports = Hammer;
+  // browser export
+  } else {
+      window.Hammer = Hammer;
+  }
+
+  })(window);
+
+/***/ },
+/* 59 */
 /***/ function(module, exports, __webpack_require__) {
 
   var __WEBPACK_AMD_DEFINE_RESULT__;/* WEBPACK VAR INJECTION */(function(global, module) {//! moment.js
@@ -27453,2180 +29620,13 @@ return /******/ (function(modules) { // webpackBootstrap
   /* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }()), __webpack_require__(71)(module)))
 
 /***/ },
-/* 59 */
-/***/ function(module, exports, __webpack_require__) {
-
-  var __WEBPACK_AMD_DEFINE_RESULT__;/*! Hammer.JS - v1.1.3 - 2014-05-20
-   * http://eightmedia.github.io/hammer.js
-   *
-   * Copyright (c) 2014 Jorik Tangelder <j.tangelder@gmail.com>;
-   * Licensed under the MIT license */
-
-  (function(window, undefined) {
-    'use strict';
-
-  /**
-   * @main
-   * @module hammer
-   *
-   * @class Hammer
-   * @static
-   */
-
-  /**
-   * Hammer, use this to create instances
-   * ````
-   * var hammertime = new Hammer(myElement);
-   * ````
-   *
-   * @method Hammer
-   * @param {HTMLElement} element
-   * @param {Object} [options={}]
-   * @return {Hammer.Instance}
-   */
-  var Hammer = function Hammer(element, options) {
-      return new Hammer.Instance(element, options || {});
-  };
-
-  /**
-   * version, as defined in package.json
-   * the value will be set at each build
-   * @property VERSION
-   * @final
-   * @type {String}
-   */
-  Hammer.VERSION = '1.1.3';
-
-  /**
-   * default settings.
-   * more settings are defined per gesture at `/gestures`. Each gesture can be disabled/enabled
-   * by setting it's name (like `swipe`) to false.
-   * You can set the defaults for all instances by changing this object before creating an instance.
-   * @example
-   * ````
-   *  Hammer.defaults.drag = false;
-   *  Hammer.defaults.behavior.touchAction = 'pan-y';
-   *  delete Hammer.defaults.behavior.userSelect;
-   * ````
-   * @property defaults
-   * @type {Object}
-   */
-  Hammer.defaults = {
-      /**
-       * this setting object adds styles and attributes to the element to prevent the browser from doing
-       * its native behavior. The css properties are auto prefixed for the browsers when needed.
-       * @property defaults.behavior
-       * @type {Object}
-       */
-      behavior: {
-          /**
-           * Disables text selection to improve the dragging gesture. When the value is `none` it also sets
-           * `onselectstart=false` for IE on the element. Mainly for desktop browsers.
-           * @property defaults.behavior.userSelect
-           * @type {String}
-           * @default 'none'
-           */
-          userSelect: 'none',
-
-          /**
-           * Specifies whether and how a given region can be manipulated by the user (for instance, by panning or zooming).
-           * Used by Chrome 35> and IE10>. By default this makes the element blocking any touch event.
-           * @property defaults.behavior.touchAction
-           * @type {String}
-           * @default: 'pan-y'
-           */
-          touchAction: 'pan-y',
-
-          /**
-           * Disables the default callout shown when you touch and hold a touch target.
-           * On iOS, when you touch and hold a touch target such as a link, Safari displays
-           * a callout containing information about the link. This property allows you to disable that callout.
-           * @property defaults.behavior.touchCallout
-           * @type {String}
-           * @default 'none'
-           */
-          touchCallout: 'none',
-
-          /**
-           * Specifies whether zooming is enabled. Used by IE10>
-           * @property defaults.behavior.contentZooming
-           * @type {String}
-           * @default 'none'
-           */
-          contentZooming: 'none',
-
-          /**
-           * Specifies that an entire element should be draggable instead of its contents.
-           * Mainly for desktop browsers.
-           * @property defaults.behavior.userDrag
-           * @type {String}
-           * @default 'none'
-           */
-          userDrag: 'none',
-
-          /**
-           * Overrides the highlight color shown when the user taps a link or a JavaScript
-           * clickable element in Safari on iPhone. This property obeys the alpha value, if specified.
-           *
-           * If you don't specify an alpha value, Safari on iPhone applies a default alpha value
-           * to the color. To disable tap highlighting, set the alpha value to 0 (invisible).
-           * If you set the alpha value to 1.0 (opaque), the element is not visible when tapped.
-           * @property defaults.behavior.tapHighlightColor
-           * @type {String}
-           * @default 'rgba(0,0,0,0)'
-           */
-          tapHighlightColor: 'rgba(0,0,0,0)'
-      }
-  };
-
-  /**
-   * hammer document where the base events are added at
-   * @property DOCUMENT
-   * @type {HTMLElement}
-   * @default window.document
-   */
-  Hammer.DOCUMENT = document;
-
-  /**
-   * detect support for pointer events
-   * @property HAS_POINTEREVENTS
-   * @type {Boolean}
-   */
-  Hammer.HAS_POINTEREVENTS = navigator.pointerEnabled || navigator.msPointerEnabled;
-
-  /**
-   * detect support for touch events
-   * @property HAS_TOUCHEVENTS
-   * @type {Boolean}
-   */
-  Hammer.HAS_TOUCHEVENTS = ('ontouchstart' in window);
-
-  /**
-   * detect mobile browsers
-   * @property IS_MOBILE
-   * @type {Boolean}
-   */
-  Hammer.IS_MOBILE = /mobile|tablet|ip(ad|hone|od)|android|silk/i.test(navigator.userAgent);
-
-  /**
-   * detect if we want to support mouseevents at all
-   * @property NO_MOUSEEVENTS
-   * @type {Boolean}
-   */
-  Hammer.NO_MOUSEEVENTS = (Hammer.HAS_TOUCHEVENTS && Hammer.IS_MOBILE) || Hammer.HAS_POINTEREVENTS;
-
-  /**
-   * interval in which Hammer recalculates current velocity/direction/angle in ms
-   * @property CALCULATE_INTERVAL
-   * @type {Number}
-   * @default 25
-   */
-  Hammer.CALCULATE_INTERVAL = 25;
-
-  /**
-   * eventtypes per touchevent (start, move, end) are filled by `Event.determineEventTypes` on `setup`
-   * the object contains the DOM event names per type (`EVENT_START`, `EVENT_MOVE`, `EVENT_END`)
-   * @property EVENT_TYPES
-   * @private
-   * @writeOnce
-   * @type {Object}
-   */
-  var EVENT_TYPES = {};
-
-  /**
-   * direction strings, for safe comparisons
-   * @property DIRECTION_DOWN|LEFT|UP|RIGHT
-   * @final
-   * @type {String}
-   * @default 'down' 'left' 'up' 'right'
-   */
-  var DIRECTION_DOWN = Hammer.DIRECTION_DOWN = 'down';
-  var DIRECTION_LEFT = Hammer.DIRECTION_LEFT = 'left';
-  var DIRECTION_UP = Hammer.DIRECTION_UP = 'up';
-  var DIRECTION_RIGHT = Hammer.DIRECTION_RIGHT = 'right';
-
-  /**
-   * pointertype strings, for safe comparisons
-   * @property POINTER_MOUSE|TOUCH|PEN
-   * @final
-   * @type {String}
-   * @default 'mouse' 'touch' 'pen'
-   */
-  var POINTER_MOUSE = Hammer.POINTER_MOUSE = 'mouse';
-  var POINTER_TOUCH = Hammer.POINTER_TOUCH = 'touch';
-  var POINTER_PEN = Hammer.POINTER_PEN = 'pen';
-
-  /**
-   * eventtypes
-   * @property EVENT_START|MOVE|END|RELEASE|TOUCH
-   * @final
-   * @type {String}
-   * @default 'start' 'change' 'move' 'end' 'release' 'touch'
-   */
-  var EVENT_START = Hammer.EVENT_START = 'start';
-  var EVENT_MOVE = Hammer.EVENT_MOVE = 'move';
-  var EVENT_END = Hammer.EVENT_END = 'end';
-  var EVENT_RELEASE = Hammer.EVENT_RELEASE = 'release';
-  var EVENT_TOUCH = Hammer.EVENT_TOUCH = 'touch';
-
-  /**
-   * if the window events are set...
-   * @property READY
-   * @writeOnce
-   * @type {Boolean}
-   * @default false
-   */
-  Hammer.READY = false;
-
-  /**
-   * plugins namespace
-   * @property plugins
-   * @type {Object}
-   */
-  Hammer.plugins = Hammer.plugins || {};
-
-  /**
-   * gestures namespace
-   * see `/gestures` for the definitions
-   * @property gestures
-   * @type {Object}
-   */
-  Hammer.gestures = Hammer.gestures || {};
-
-  /**
-   * setup events to detect gestures on the document
-   * this function is called when creating an new instance
-   * @private
-   */
-  function setup() {
-      if(Hammer.READY) {
-          return;
-      }
-
-      // find what eventtypes we add listeners to
-      Event.determineEventTypes();
-
-      // Register all gestures inside Hammer.gestures
-      Utils.each(Hammer.gestures, function(gesture) {
-          Detection.register(gesture);
-      });
-
-      // Add touch events on the document
-      Event.onTouch(Hammer.DOCUMENT, EVENT_MOVE, Detection.detect);
-      Event.onTouch(Hammer.DOCUMENT, EVENT_END, Detection.detect);
-
-      // Hammer is ready...!
-      Hammer.READY = true;
-  }
-
-  /**
-   * @module hammer
-   *
-   * @class Utils
-   * @static
-   */
-  var Utils = Hammer.utils = {
-      /**
-       * extend method, could also be used for cloning when `dest` is an empty object.
-       * changes the dest object
-       * @method extend
-       * @param {Object} dest
-       * @param {Object} src
-       * @param {Boolean} [merge=false]  do a merge
-       * @return {Object} dest
-       */
-      extend: function extend(dest, src, merge) {
-          for(var key in src) {
-              if(!src.hasOwnProperty(key) || (dest[key] !== undefined && merge)) {
-                  continue;
-              }
-              dest[key] = src[key];
-          }
-          return dest;
-      },
-
-      /**
-       * simple addEventListener wrapper
-       * @method on
-       * @param {HTMLElement} element
-       * @param {String} type
-       * @param {Function} handler
-       */
-      on: function on(element, type, handler) {
-          element.addEventListener(type, handler, false);
-      },
-
-      /**
-       * simple removeEventListener wrapper
-       * @method off
-       * @param {HTMLElement} element
-       * @param {String} type
-       * @param {Function} handler
-       */
-      off: function off(element, type, handler) {
-          element.removeEventListener(type, handler, false);
-      },
-
-      /**
-       * forEach over arrays and objects
-       * @method each
-       * @param {Object|Array} obj
-       * @param {Function} iterator
-       * @param {any} iterator.item
-       * @param {Number} iterator.index
-       * @param {Object|Array} iterator.obj the source object
-       * @param {Object} context value to use as `this` in the iterator
-       */
-      each: function each(obj, iterator, context) {
-          var i, len;
-
-          // native forEach on arrays
-          if('forEach' in obj) {
-              obj.forEach(iterator, context);
-          // arrays
-          } else if(obj.length !== undefined) {
-              for(i = 0, len = obj.length; i < len; i++) {
-                  if(iterator.call(context, obj[i], i, obj) === false) {
-                      return;
-                  }
-              }
-          // objects
-          } else {
-              for(i in obj) {
-                  if(obj.hasOwnProperty(i) &&
-                      iterator.call(context, obj[i], i, obj) === false) {
-                      return;
-                  }
-              }
-          }
-      },
-
-      /**
-       * find if a string contains the string using indexOf
-       * @method inStr
-       * @param {String} src
-       * @param {String} find
-       * @return {Boolean} found
-       */
-      inStr: function inStr(src, find) {
-          return src.indexOf(find) > -1;
-      },
-
-      /**
-       * find if a array contains the object using indexOf or a simple polyfill
-       * @method inArray
-       * @param {String} src
-       * @param {String} find
-       * @return {Boolean|Number} false when not found, or the index
-       */
-      inArray: function inArray(src, find) {
-          if(src.indexOf) {
-              var index = src.indexOf(find);
-              return (index === -1) ? false : index;
-          } else {
-              for(var i = 0, len = src.length; i < len; i++) {
-                  if(src[i] === find) {
-                      return i;
-                  }
-              }
-              return false;
-          }
-      },
-
-      /**
-       * convert an array-like object (`arguments`, `touchlist`) to an array
-       * @method toArray
-       * @param {Object} obj
-       * @return {Array}
-       */
-      toArray: function toArray(obj) {
-          return Array.prototype.slice.call(obj, 0);
-      },
-
-      /**
-       * find if a node is in the given parent
-       * @method hasParent
-       * @param {HTMLElement} node
-       * @param {HTMLElement} parent
-       * @return {Boolean} found
-       */
-      hasParent: function hasParent(node, parent) {
-          while(node) {
-              if(node == parent) {
-                  return true;
-              }
-              node = node.parentNode;
-          }
-          return false;
-      },
-
-      /**
-       * get the center of all the touches
-       * @method getCenter
-       * @param {Array} touches
-       * @return {Object} center contains `pageX`, `pageY`, `clientX` and `clientY` properties
-       */
-      getCenter: function getCenter(touches) {
-          var pageX = [],
-              pageY = [],
-              clientX = [],
-              clientY = [],
-              min = Math.min,
-              max = Math.max;
-
-          // no need to loop when only one touch
-          if(touches.length === 1) {
-              return {
-                  pageX: touches[0].pageX,
-                  pageY: touches[0].pageY,
-                  clientX: touches[0].clientX,
-                  clientY: touches[0].clientY
-              };
-          }
-
-          Utils.each(touches, function(touch) {
-              pageX.push(touch.pageX);
-              pageY.push(touch.pageY);
-              clientX.push(touch.clientX);
-              clientY.push(touch.clientY);
-          });
-
-          return {
-              pageX: (min.apply(Math, pageX) + max.apply(Math, pageX)) / 2,
-              pageY: (min.apply(Math, pageY) + max.apply(Math, pageY)) / 2,
-              clientX: (min.apply(Math, clientX) + max.apply(Math, clientX)) / 2,
-              clientY: (min.apply(Math, clientY) + max.apply(Math, clientY)) / 2
-          };
-      },
-
-      /**
-       * calculate the velocity between two points. unit is in px per ms.
-       * @method getVelocity
-       * @param {Number} deltaTime
-       * @param {Number} deltaX
-       * @param {Number} deltaY
-       * @return {Object} velocity `x` and `y`
-       */
-      getVelocity: function getVelocity(deltaTime, deltaX, deltaY) {
-          return {
-              x: Math.abs(deltaX / deltaTime) || 0,
-              y: Math.abs(deltaY / deltaTime) || 0
-          };
-      },
-
-      /**
-       * calculate the angle between two coordinates
-       * @method getAngle
-       * @param {Touch} touch1
-       * @param {Touch} touch2
-       * @return {Number} angle
-       */
-      getAngle: function getAngle(touch1, touch2) {
-          var x = touch2.clientX - touch1.clientX,
-              y = touch2.clientY - touch1.clientY;
-
-          return Math.atan2(y, x) * 180 / Math.PI;
-      },
-
-      /**
-       * do a small comparision to get the direction between two touches.
-       * @method getDirection
-       * @param {Touch} touch1
-       * @param {Touch} touch2
-       * @return {String} direction matches `DIRECTION_LEFT|RIGHT|UP|DOWN`
-       */
-      getDirection: function getDirection(touch1, touch2) {
-          var x = Math.abs(touch1.clientX - touch2.clientX),
-              y = Math.abs(touch1.clientY - touch2.clientY);
-
-          if(x >= y) {
-              return touch1.clientX - touch2.clientX > 0 ? DIRECTION_LEFT : DIRECTION_RIGHT;
-          }
-          return touch1.clientY - touch2.clientY > 0 ? DIRECTION_UP : DIRECTION_DOWN;
-      },
-
-      /**
-       * calculate the distance between two touches
-       * @method getDistance
-       * @param {Touch}touch1
-       * @param {Touch} touch2
-       * @return {Number} distance
-       */
-      getDistance: function getDistance(touch1, touch2) {
-          var x = touch2.clientX - touch1.clientX,
-              y = touch2.clientY - touch1.clientY;
-
-          return Math.sqrt((x * x) + (y * y));
-      },
-
-      /**
-       * calculate the scale factor between two touchLists
-       * no scale is 1, and goes down to 0 when pinched together, and bigger when pinched out
-       * @method getScale
-       * @param {Array} start array of touches
-       * @param {Array} end array of touches
-       * @return {Number} scale
-       */
-      getScale: function getScale(start, end) {
-          // need two fingers...
-          if(start.length >= 2 && end.length >= 2) {
-              return this.getDistance(end[0], end[1]) / this.getDistance(start[0], start[1]);
-          }
-          return 1;
-      },
-
-      /**
-       * calculate the rotation degrees between two touchLists
-       * @method getRotation
-       * @param {Array} start array of touches
-       * @param {Array} end array of touches
-       * @return {Number} rotation
-       */
-      getRotation: function getRotation(start, end) {
-          // need two fingers
-          if(start.length >= 2 && end.length >= 2) {
-              return this.getAngle(end[1], end[0]) - this.getAngle(start[1], start[0]);
-          }
-          return 0;
-      },
-
-      /**
-       * find out if the direction is vertical   *
-       * @method isVertical
-       * @param {String} direction matches `DIRECTION_UP|DOWN`
-       * @return {Boolean} is_vertical
-       */
-      isVertical: function isVertical(direction) {
-          return direction == DIRECTION_UP || direction == DIRECTION_DOWN;
-      },
-
-      /**
-       * set css properties with their prefixes
-       * @param {HTMLElement} element
-       * @param {String} prop
-       * @param {String} value
-       * @param {Boolean} [toggle=true]
-       * @return {Boolean}
-       */
-      setPrefixedCss: function setPrefixedCss(element, prop, value, toggle) {
-          var prefixes = ['', 'Webkit', 'Moz', 'O', 'ms'];
-          prop = Utils.toCamelCase(prop);
-
-          for(var i = 0; i < prefixes.length; i++) {
-              var p = prop;
-              // prefixes
-              if(prefixes[i]) {
-                  p = prefixes[i] + p.slice(0, 1).toUpperCase() + p.slice(1);
-              }
-
-              // test the style
-              if(p in element.style) {
-                  element.style[p] = (toggle == null || toggle) && value || '';
-                  break;
-              }
-          }
-      },
-
-      /**
-       * toggle browser default behavior by setting css properties.
-       * `userSelect='none'` also sets `element.onselectstart` to false
-       * `userDrag='none'` also sets `element.ondragstart` to false
-       *
-       * @method toggleBehavior
-       * @param {HtmlElement} element
-       * @param {Object} props
-       * @param {Boolean} [toggle=true]
-       */
-      toggleBehavior: function toggleBehavior(element, props, toggle) {
-          if(!props || !element || !element.style) {
-              return;
-          }
-
-          // set the css properties
-          Utils.each(props, function(value, prop) {
-              Utils.setPrefixedCss(element, prop, value, toggle);
-          });
-
-          var falseFn = toggle && function() {
-              return false;
-          };
-
-          // also the disable onselectstart
-          if(props.userSelect == 'none') {
-              element.onselectstart = falseFn;
-          }
-          // and disable ondragstart
-          if(props.userDrag == 'none') {
-              element.ondragstart = falseFn;
-          }
-      },
-
-      /**
-       * convert a string with underscores to camelCase
-       * so prevent_default becomes preventDefault
-       * @param {String} str
-       * @return {String} camelCaseStr
-       */
-      toCamelCase: function toCamelCase(str) {
-          return str.replace(/[_-]([a-z])/g, function(s) {
-              return s[1].toUpperCase();
-          });
-      }
-  };
-
-
-  /**
-   * @module hammer
-   */
-  /**
-   * @class Event
-   * @static
-   */
-  var Event = Hammer.event = {
-      /**
-       * when touch events have been fired, this is true
-       * this is used to stop mouse events
-       * @property prevent_mouseevents
-       * @private
-       * @type {Boolean}
-       */
-      preventMouseEvents: false,
-
-      /**
-       * if EVENT_START has been fired
-       * @property started
-       * @private
-       * @type {Boolean}
-       */
-      started: false,
-
-      /**
-       * when the mouse is hold down, this is true
-       * @property should_detect
-       * @private
-       * @type {Boolean}
-       */
-      shouldDetect: false,
-
-      /**
-       * simple event binder with a hook and support for multiple types
-       * @method on
-       * @param {HTMLElement} element
-       * @param {String} type
-       * @param {Function} handler
-       * @param {Function} [hook]
-       * @param {Object} hook.type
-       */
-      on: function on(element, type, handler, hook) {
-          var types = type.split(' ');
-          Utils.each(types, function(type) {
-              Utils.on(element, type, handler);
-              hook && hook(type);
-          });
-      },
-
-      /**
-       * simple event unbinder with a hook and support for multiple types
-       * @method off
-       * @param {HTMLElement} element
-       * @param {String} type
-       * @param {Function} handler
-       * @param {Function} [hook]
-       * @param {Object} hook.type
-       */
-      off: function off(element, type, handler, hook) {
-          var types = type.split(' ');
-          Utils.each(types, function(type) {
-              Utils.off(element, type, handler);
-              hook && hook(type);
-          });
-      },
-
-      /**
-       * the core touch event handler.
-       * this finds out if we should to detect gestures
-       * @method onTouch
-       * @param {HTMLElement} element
-       * @param {String} eventType matches `EVENT_START|MOVE|END`
-       * @param {Function} handler
-       * @return onTouchHandler {Function} the core event handler
-       */
-      onTouch: function onTouch(element, eventType, handler) {
-          var self = this;
-
-          var onTouchHandler = function onTouchHandler(ev) {
-              var srcType = ev.type.toLowerCase(),
-                  isPointer = Hammer.HAS_POINTEREVENTS,
-                  isMouse = Utils.inStr(srcType, 'mouse'),
-                  triggerType;
-
-              // if we are in a mouseevent, but there has been a touchevent triggered in this session
-              // we want to do nothing. simply break out of the event.
-              if(isMouse && self.preventMouseEvents) {
-                  return;
-
-              // mousebutton must be down
-              } else if(isMouse && eventType == EVENT_START && ev.button === 0) {
-                  self.preventMouseEvents = false;
-                  self.shouldDetect = true;
-              } else if(isPointer && eventType == EVENT_START) {
-                  self.shouldDetect = (ev.buttons === 1 || PointerEvent.matchType(POINTER_TOUCH, ev));
-              // just a valid start event, but no mouse
-              } else if(!isMouse && eventType == EVENT_START) {
-                  self.preventMouseEvents = true;
-                  self.shouldDetect = true;
-              }
-
-              // update the pointer event before entering the detection
-              if(isPointer && eventType != EVENT_END) {
-                  PointerEvent.updatePointer(eventType, ev);
-              }
-
-              // we are in a touch/down state, so allowed detection of gestures
-              if(self.shouldDetect) {
-                  triggerType = self.doDetect.call(self, ev, eventType, element, handler);
-              }
-
-              // ...and we are done with the detection
-              // so reset everything to start each detection totally fresh
-              if(triggerType == EVENT_END) {
-                  self.preventMouseEvents = false;
-                  self.shouldDetect = false;
-                  PointerEvent.reset();
-              // update the pointerevent object after the detection
-              }
-
-              if(isPointer && eventType == EVENT_END) {
-                  PointerEvent.updatePointer(eventType, ev);
-              }
-          };
-
-          this.on(element, EVENT_TYPES[eventType], onTouchHandler);
-          return onTouchHandler;
-      },
-
-      /**
-       * the core detection method
-       * this finds out what hammer-touch-events to trigger
-       * @method doDetect
-       * @param {Object} ev
-       * @param {String} eventType matches `EVENT_START|MOVE|END`
-       * @param {HTMLElement} element
-       * @param {Function} handler
-       * @return {String} triggerType matches `EVENT_START|MOVE|END`
-       */
-      doDetect: function doDetect(ev, eventType, element, handler) {
-          var touchList = this.getTouchList(ev, eventType);
-          var touchListLength = touchList.length;
-          var triggerType = eventType;
-          var triggerChange = touchList.trigger; // used by fakeMultitouch plugin
-          var changedLength = touchListLength;
-
-          // at each touchstart-like event we want also want to trigger a TOUCH event...
-          if(eventType == EVENT_START) {
-              triggerChange = EVENT_TOUCH;
-          // ...the same for a touchend-like event
-          } else if(eventType == EVENT_END) {
-              triggerChange = EVENT_RELEASE;
-
-              // keep track of how many touches have been removed
-              changedLength = touchList.length - ((ev.changedTouches) ? ev.changedTouches.length : 1);
-          }
-
-          // after there are still touches on the screen,
-          // we just want to trigger a MOVE event. so change the START or END to a MOVE
-          // but only after detection has been started, the first time we actualy want a START
-          if(changedLength > 0 && this.started) {
-              triggerType = EVENT_MOVE;
-          }
-
-          // detection has been started, we keep track of this, see above
-          this.started = true;
-
-          // generate some event data, some basic information
-          var evData = this.collectEventData(element, triggerType, touchList, ev);
-
-          // trigger the triggerType event before the change (TOUCH, RELEASE) events
-          // but the END event should be at last
-          if(eventType != EVENT_END) {
-              handler.call(Detection, evData);
-          }
-
-          // trigger a change (TOUCH, RELEASE) event, this means the length of the touches changed
-          if(triggerChange) {
-              evData.changedLength = changedLength;
-              evData.eventType = triggerChange;
-
-              handler.call(Detection, evData);
-
-              evData.eventType = triggerType;
-              delete evData.changedLength;
-          }
-
-          // trigger the END event
-          if(triggerType == EVENT_END) {
-              handler.call(Detection, evData);
-
-              // ...and we are done with the detection
-              // so reset everything to start each detection totally fresh
-              this.started = false;
-          }
-
-          return triggerType;
-      },
-
-      /**
-       * we have different events for each device/browser
-       * determine what we need and set them in the EVENT_TYPES constant
-       * the `onTouch` method is bind to these properties.
-       * @method determineEventTypes
-       * @return {Object} events
-       */
-      determineEventTypes: function determineEventTypes() {
-          var types;
-          if(Hammer.HAS_POINTEREVENTS) {
-              if(window.PointerEvent) {
-                  types = [
-                      'pointerdown',
-                      'pointermove',
-                      'pointerup pointercancel lostpointercapture'
-                  ];
-              } else {
-                  types = [
-                      'MSPointerDown',
-                      'MSPointerMove',
-                      'MSPointerUp MSPointerCancel MSLostPointerCapture'
-                  ];
-              }
-          } else if(Hammer.NO_MOUSEEVENTS) {
-              types = [
-                  'touchstart',
-                  'touchmove',
-                  'touchend touchcancel'
-              ];
-          } else {
-              types = [
-                  'touchstart mousedown',
-                  'touchmove mousemove',
-                  'touchend touchcancel mouseup'
-              ];
-          }
-
-          EVENT_TYPES[EVENT_START] = types[0];
-          EVENT_TYPES[EVENT_MOVE] = types[1];
-          EVENT_TYPES[EVENT_END] = types[2];
-          return EVENT_TYPES;
-      },
-
-      /**
-       * create touchList depending on the event
-       * @method getTouchList
-       * @param {Object} ev
-       * @param {String} eventType
-       * @return {Array} touches
-       */
-      getTouchList: function getTouchList(ev, eventType) {
-          // get the fake pointerEvent touchlist
-          if(Hammer.HAS_POINTEREVENTS) {
-              return PointerEvent.getTouchList();
-          }
-
-          // get the touchlist
-          if(ev.touches) {
-              if(eventType == EVENT_MOVE) {
-                  return ev.touches;
-              }
-
-              var identifiers = [];
-              var concat = [].concat(Utils.toArray(ev.touches), Utils.toArray(ev.changedTouches));
-              var touchList = [];
-
-              Utils.each(concat, function(touch) {
-                  if(Utils.inArray(identifiers, touch.identifier) === false) {
-                      touchList.push(touch);
-                  }
-                  identifiers.push(touch.identifier);
-              });
-
-              return touchList;
-          }
-
-          // make fake touchList from mouse position
-          ev.identifier = 1;
-          return [ev];
-      },
-
-      /**
-       * collect basic event data
-       * @method collectEventData
-       * @param {HTMLElement} element
-       * @param {String} eventType matches `EVENT_START|MOVE|END`
-       * @param {Array} touches
-       * @param {Object} ev
-       * @return {Object} ev
-       */
-      collectEventData: function collectEventData(element, eventType, touches, ev) {
-          // find out pointerType
-          var pointerType = POINTER_TOUCH;
-          if(Utils.inStr(ev.type, 'mouse') || PointerEvent.matchType(POINTER_MOUSE, ev)) {
-              pointerType = POINTER_MOUSE;
-          } else if(PointerEvent.matchType(POINTER_PEN, ev)) {
-              pointerType = POINTER_PEN;
-          }
-
-          return {
-              center: Utils.getCenter(touches),
-              timeStamp: Date.now(),
-              target: ev.target,
-              touches: touches,
-              eventType: eventType,
-              pointerType: pointerType,
-              srcEvent: ev,
-
-              /**
-               * prevent the browser default actions
-               * mostly used to disable scrolling of the browser
-               */
-              preventDefault: function() {
-                  var srcEvent = this.srcEvent;
-                  srcEvent.preventManipulation && srcEvent.preventManipulation();
-                  srcEvent.preventDefault && srcEvent.preventDefault();
-              },
-
-              /**
-               * stop bubbling the event up to its parents
-               */
-              stopPropagation: function() {
-                  this.srcEvent.stopPropagation();
-              },
-
-              /**
-               * immediately stop gesture detection
-               * might be useful after a swipe was detected
-               * @return {*}
-               */
-              stopDetect: function() {
-                  return Detection.stopDetect();
-              }
-          };
-      }
-  };
-
-
-  /**
-   * @module hammer
-   *
-   * @class PointerEvent
-   * @static
-   */
-  var PointerEvent = Hammer.PointerEvent = {
-      /**
-       * holds all pointers, by `identifier`
-       * @property pointers
-       * @type {Object}
-       */
-      pointers: {},
-
-      /**
-       * get the pointers as an array
-       * @method getTouchList
-       * @return {Array} touchlist
-       */
-      getTouchList: function getTouchList() {
-          var touchlist = [];
-          // we can use forEach since pointerEvents only is in IE10
-          Utils.each(this.pointers, function(pointer) {
-              touchlist.push(pointer);
-          });
-          return touchlist;
-      },
-
-      /**
-       * update the position of a pointer
-       * @method updatePointer
-       * @param {String} eventType matches `EVENT_START|MOVE|END`
-       * @param {Object} pointerEvent
-       */
-      updatePointer: function updatePointer(eventType, pointerEvent) {
-          if(eventType == EVENT_END || (eventType != EVENT_END && pointerEvent.buttons !== 1)) {
-              delete this.pointers[pointerEvent.pointerId];
-          } else {
-              pointerEvent.identifier = pointerEvent.pointerId;
-              this.pointers[pointerEvent.pointerId] = pointerEvent;
-          }
-      },
-
-      /**
-       * check if ev matches pointertype
-       * @method matchType
-       * @param {String} pointerType matches `POINTER_MOUSE|TOUCH|PEN`
-       * @param {PointerEvent} ev
-       */
-      matchType: function matchType(pointerType, ev) {
-          if(!ev.pointerType) {
-              return false;
-          }
-
-          var pt = ev.pointerType,
-              types = {};
-
-          types[POINTER_MOUSE] = (pt === (ev.MSPOINTER_TYPE_MOUSE || POINTER_MOUSE));
-          types[POINTER_TOUCH] = (pt === (ev.MSPOINTER_TYPE_TOUCH || POINTER_TOUCH));
-          types[POINTER_PEN] = (pt === (ev.MSPOINTER_TYPE_PEN || POINTER_PEN));
-          return types[pointerType];
-      },
-
-      /**
-       * reset the stored pointers
-       * @method reset
-       */
-      reset: function resetList() {
-          this.pointers = {};
-      }
-  };
-
-
-  /**
-   * @module hammer
-   *
-   * @class Detection
-   * @static
-   */
-  var Detection = Hammer.detection = {
-      // contains all registred Hammer.gestures in the correct order
-      gestures: [],
-
-      // data of the current Hammer.gesture detection session
-      current: null,
-
-      // the previous Hammer.gesture session data
-      // is a full clone of the previous gesture.current object
-      previous: null,
-
-      // when this becomes true, no gestures are fired
-      stopped: false,
-
-      /**
-       * start Hammer.gesture detection
-       * @method startDetect
-       * @param {Hammer.Instance} inst
-       * @param {Object} eventData
-       */
-      startDetect: function startDetect(inst, eventData) {
-          // already busy with a Hammer.gesture detection on an element
-          if(this.current) {
-              return;
-          }
-
-          this.stopped = false;
-
-          // holds current session
-          this.current = {
-              inst: inst, // reference to HammerInstance we're working for
-              startEvent: Utils.extend({}, eventData), // start eventData for distances, timing etc
-              lastEvent: false, // last eventData
-              lastCalcEvent: false, // last eventData for calculations.
-              futureCalcEvent: false, // last eventData for calculations.
-              lastCalcData: {}, // last lastCalcData
-              name: '' // current gesture we're in/detected, can be 'tap', 'hold' etc
-          };
-
-          this.detect(eventData);
-      },
-
-      /**
-       * Hammer.gesture detection
-       * @method detect
-       * @param {Object} eventData
-       * @return {any}
-       */
-      detect: function detect(eventData) {
-          if(!this.current || this.stopped) {
-              return;
-          }
-
-          // extend event data with calculations about scale, distance etc
-          eventData = this.extendEventData(eventData);
-
-          // hammer instance and instance options
-          var inst = this.current.inst,
-              instOptions = inst.options;
-
-          // call Hammer.gesture handlers
-          Utils.each(this.gestures, function triggerGesture(gesture) {
-              // only when the instance options have enabled this gesture
-              if(!this.stopped && inst.enabled && instOptions[gesture.name]) {
-                  gesture.handler.call(gesture, eventData, inst);
-              }
-          }, this);
-
-          // store as previous event event
-          if(this.current) {
-              this.current.lastEvent = eventData;
-          }
-
-          if(eventData.eventType == EVENT_END) {
-              this.stopDetect();
-          }
-
-          return eventData;
-      },
-
-      /**
-       * clear the Hammer.gesture vars
-       * this is called on endDetect, but can also be used when a final Hammer.gesture has been detected
-       * to stop other Hammer.gestures from being fired
-       * @method stopDetect
-       */
-      stopDetect: function stopDetect() {
-          // clone current data to the store as the previous gesture
-          // used for the double tap gesture, since this is an other gesture detect session
-          this.previous = Utils.extend({}, this.current);
-
-          // reset the current
-          this.current = null;
-          this.stopped = true;
-      },
-
-      /**
-       * calculate velocity, angle and direction
-       * @method getVelocityData
-       * @param {Object} ev
-       * @param {Object} center
-       * @param {Number} deltaTime
-       * @param {Number} deltaX
-       * @param {Number} deltaY
-       */
-      getCalculatedData: function getCalculatedData(ev, center, deltaTime, deltaX, deltaY) {
-          var cur = this.current,
-              recalc = false,
-              calcEv = cur.lastCalcEvent,
-              calcData = cur.lastCalcData;
-
-          if(calcEv && ev.timeStamp - calcEv.timeStamp > Hammer.CALCULATE_INTERVAL) {
-              center = calcEv.center;
-              deltaTime = ev.timeStamp - calcEv.timeStamp;
-              deltaX = ev.center.clientX - calcEv.center.clientX;
-              deltaY = ev.center.clientY - calcEv.center.clientY;
-              recalc = true;
-          }
-
-          if(ev.eventType == EVENT_TOUCH || ev.eventType == EVENT_RELEASE) {
-              cur.futureCalcEvent = ev;
-          }
-
-          if(!cur.lastCalcEvent || recalc) {
-              calcData.velocity = Utils.getVelocity(deltaTime, deltaX, deltaY);
-              calcData.angle = Utils.getAngle(center, ev.center);
-              calcData.direction = Utils.getDirection(center, ev.center);
-
-              cur.lastCalcEvent = cur.futureCalcEvent || ev;
-              cur.futureCalcEvent = ev;
-          }
-
-          ev.velocityX = calcData.velocity.x;
-          ev.velocityY = calcData.velocity.y;
-          ev.interimAngle = calcData.angle;
-          ev.interimDirection = calcData.direction;
-      },
-
-      /**
-       * extend eventData for Hammer.gestures
-       * @method extendEventData
-       * @param {Object} ev
-       * @return {Object} ev
-       */
-      extendEventData: function extendEventData(ev) {
-          var cur = this.current,
-              startEv = cur.startEvent,
-              lastEv = cur.lastEvent || startEv;
-
-          // update the start touchlist to calculate the scale/rotation
-          if(ev.eventType == EVENT_TOUCH || ev.eventType == EVENT_RELEASE) {
-              startEv.touches = [];
-              Utils.each(ev.touches, function(touch) {
-                  startEv.touches.push({
-                      clientX: touch.clientX,
-                      clientY: touch.clientY
-                  });
-              });
-          }
-
-          var deltaTime = ev.timeStamp - startEv.timeStamp,
-              deltaX = ev.center.clientX - startEv.center.clientX,
-              deltaY = ev.center.clientY - startEv.center.clientY;
-
-          this.getCalculatedData(ev, lastEv.center, deltaTime, deltaX, deltaY);
-
-          Utils.extend(ev, {
-              startEvent: startEv,
-
-              deltaTime: deltaTime,
-              deltaX: deltaX,
-              deltaY: deltaY,
-
-              distance: Utils.getDistance(startEv.center, ev.center),
-              angle: Utils.getAngle(startEv.center, ev.center),
-              direction: Utils.getDirection(startEv.center, ev.center),
-              scale: Utils.getScale(startEv.touches, ev.touches),
-              rotation: Utils.getRotation(startEv.touches, ev.touches)
-          });
-
-          return ev;
-      },
-
-      /**
-       * register new gesture
-       * @method register
-       * @param {Object} gesture object, see `gestures/` for documentation
-       * @return {Array} gestures
-       */
-      register: function register(gesture) {
-          // add an enable gesture options if there is no given
-          var options = gesture.defaults || {};
-          if(options[gesture.name] === undefined) {
-              options[gesture.name] = true;
-          }
-
-          // extend Hammer default options with the Hammer.gesture options
-          Utils.extend(Hammer.defaults, options, true);
-
-          // set its index
-          gesture.index = gesture.index || 1000;
-
-          // add Hammer.gesture to the list
-          this.gestures.push(gesture);
-
-          // sort the list by index
-          this.gestures.sort(function(a, b) {
-              if(a.index < b.index) {
-                  return -1;
-              }
-              if(a.index > b.index) {
-                  return 1;
-              }
-              return 0;
-          });
-
-          return this.gestures;
-      }
-  };
-
-
-  /**
-   * @module hammer
-   */
-
-  /**
-   * create new hammer instance
-   * all methods should return the instance itself, so it is chainable.
-   *
-   * @class Instance
-   * @constructor
-   * @param {HTMLElement} element
-   * @param {Object} [options={}] options are merged with `Hammer.defaults`
-   * @return {Hammer.Instance}
-   */
-  Hammer.Instance = function(element, options) {
-      var self = this;
-
-      // setup HammerJS window events and register all gestures
-      // this also sets up the default options
-      setup();
-
-      /**
-       * @property element
-       * @type {HTMLElement}
-       */
-      this.element = element;
-
-      /**
-       * @property enabled
-       * @type {Boolean}
-       * @protected
-       */
-      this.enabled = true;
-
-      /**
-       * options, merged with the defaults
-       * options with an _ are converted to camelCase
-       * @property options
-       * @type {Object}
-       */
-      Utils.each(options, function(value, name) {
-          delete options[name];
-          options[Utils.toCamelCase(name)] = value;
-      });
-
-      this.options = Utils.extend(Utils.extend({}, Hammer.defaults), options || {});
-
-      // add some css to the element to prevent the browser from doing its native behavoir
-      if(this.options.behavior) {
-          Utils.toggleBehavior(this.element, this.options.behavior, true);
-      }
-
-      /**
-       * event start handler on the element to start the detection
-       * @property eventStartHandler
-       * @type {Object}
-       */
-      this.eventStartHandler = Event.onTouch(element, EVENT_START, function(ev) {
-          if(self.enabled && ev.eventType == EVENT_START) {
-              Detection.startDetect(self, ev);
-          } else if(ev.eventType == EVENT_TOUCH) {
-              Detection.detect(ev);
-          }
-      });
-
-      /**
-       * keep a list of user event handlers which needs to be removed when calling 'dispose'
-       * @property eventHandlers
-       * @type {Array}
-       */
-      this.eventHandlers = [];
-  };
-
-  Hammer.Instance.prototype = {
-      /**
-       * bind events to the instance
-       * @method on
-       * @chainable
-       * @param {String} gestures multiple gestures by splitting with a space
-       * @param {Function} handler
-       * @param {Object} handler.ev event object
-       */
-      on: function onEvent(gestures, handler) {
-          var self = this;
-          Event.on(self.element, gestures, handler, function(type) {
-              self.eventHandlers.push({ gesture: type, handler: handler });
-          });
-          return self;
-      },
-
-      /**
-       * unbind events to the instance
-       * @method off
-       * @chainable
-       * @param {String} gestures
-       * @param {Function} handler
-       */
-      off: function offEvent(gestures, handler) {
-          var self = this;
-
-          Event.off(self.element, gestures, handler, function(type) {
-              var index = Utils.inArray({ gesture: type, handler: handler });
-              if(index !== false) {
-                  self.eventHandlers.splice(index, 1);
-              }
-          });
-          return self;
-      },
-
-      /**
-       * trigger gesture event
-       * @method trigger
-       * @chainable
-       * @param {String} gesture
-       * @param {Object} [eventData]
-       */
-      trigger: function triggerEvent(gesture, eventData) {
-          // optional
-          if(!eventData) {
-              eventData = {};
-          }
-
-          // create DOM event
-          var event = Hammer.DOCUMENT.createEvent('Event');
-          event.initEvent(gesture, true, true);
-          event.gesture = eventData;
-
-          // trigger on the target if it is in the instance element,
-          // this is for event delegation tricks
-          var element = this.element;
-          if(Utils.hasParent(eventData.target, element)) {
-              element = eventData.target;
-          }
-
-          element.dispatchEvent(event);
-          return this;
-      },
-
-      /**
-       * enable of disable hammer.js detection
-       * @method enable
-       * @chainable
-       * @param {Boolean} state
-       */
-      enable: function enable(state) {
-          this.enabled = state;
-          return this;
-      },
-
-      /**
-       * dispose this hammer instance
-       * @method dispose
-       * @return {Null}
-       */
-      dispose: function dispose() {
-          var i, eh;
-
-          // undo all changes made by stop_browser_behavior
-          Utils.toggleBehavior(this.element, this.options.behavior, false);
-
-          // unbind all custom event handlers
-          for(i = -1; (eh = this.eventHandlers[++i]);) {
-              Utils.off(this.element, eh.gesture, eh.handler);
-          }
-
-          this.eventHandlers = [];
-
-          // unbind the start event listener
-          Event.off(this.element, EVENT_TYPES[EVENT_START], this.eventStartHandler);
-
-          return null;
-      }
-  };
-
-
-  /**
-   * @module gestures
-   */
-  /**
-   * Move with x fingers (default 1) around on the page.
-   * Preventing the default browser behavior is a good way to improve feel and working.
-   * ````
-   *  hammertime.on("drag", function(ev) {
-   *    console.log(ev);
-   *    ev.gesture.preventDefault();
-   *  });
-   * ````
-   *
-   * @class Drag
-   * @static
-   */
-  /**
-   * @event drag
-   * @param {Object} ev
-   */
-  /**
-   * @event dragstart
-   * @param {Object} ev
-   */
-  /**
-   * @event dragend
-   * @param {Object} ev
-   */
-  /**
-   * @event drapleft
-   * @param {Object} ev
-   */
-  /**
-   * @event dragright
-   * @param {Object} ev
-   */
-  /**
-   * @event dragup
-   * @param {Object} ev
-   */
-  /**
-   * @event dragdown
-   * @param {Object} ev
-   */
-
-  /**
-   * @param {String} name
-   */
-  (function(name) {
-      var triggered = false;
-
-      function dragGesture(ev, inst) {
-          var cur = Detection.current;
-
-          // max touches
-          if(inst.options.dragMaxTouches > 0 &&
-              ev.touches.length > inst.options.dragMaxTouches) {
-              return;
-          }
-
-          switch(ev.eventType) {
-              case EVENT_START:
-                  triggered = false;
-                  break;
-
-              case EVENT_MOVE:
-                  // when the distance we moved is too small we skip this gesture
-                  // or we can be already in dragging
-                  if(ev.distance < inst.options.dragMinDistance &&
-                      cur.name != name) {
-                      return;
-                  }
-
-                  var startCenter = cur.startEvent.center;
-
-                  // we are dragging!
-                  if(cur.name != name) {
-                      cur.name = name;
-                      if(inst.options.dragDistanceCorrection && ev.distance > 0) {
-                          // When a drag is triggered, set the event center to dragMinDistance pixels from the original event center.
-                          // Without this correction, the dragged distance would jumpstart at dragMinDistance pixels instead of at 0.
-                          // It might be useful to save the original start point somewhere
-                          var factor = Math.abs(inst.options.dragMinDistance / ev.distance);
-                          startCenter.pageX += ev.deltaX * factor;
-                          startCenter.pageY += ev.deltaY * factor;
-                          startCenter.clientX += ev.deltaX * factor;
-                          startCenter.clientY += ev.deltaY * factor;
-
-                          // recalculate event data using new start point
-                          ev = Detection.extendEventData(ev);
-                      }
-                  }
-
-                  // lock drag to axis?
-                  if(cur.lastEvent.dragLockToAxis ||
-                      ( inst.options.dragLockToAxis &&
-                          inst.options.dragLockMinDistance <= ev.distance
-                          )) {
-                      ev.dragLockToAxis = true;
-                  }
-
-                  // keep direction on the axis that the drag gesture started on
-                  var lastDirection = cur.lastEvent.direction;
-                  if(ev.dragLockToAxis && lastDirection !== ev.direction) {
-                      if(Utils.isVertical(lastDirection)) {
-                          ev.direction = (ev.deltaY < 0) ? DIRECTION_UP : DIRECTION_DOWN;
-                      } else {
-                          ev.direction = (ev.deltaX < 0) ? DIRECTION_LEFT : DIRECTION_RIGHT;
-                      }
-                  }
-
-                  // first time, trigger dragstart event
-                  if(!triggered) {
-                      inst.trigger(name + 'start', ev);
-                      triggered = true;
-                  }
-
-                  // trigger events
-                  inst.trigger(name, ev);
-                  inst.trigger(name + ev.direction, ev);
-
-                  var isVertical = Utils.isVertical(ev.direction);
-
-                  // block the browser events
-                  if((inst.options.dragBlockVertical && isVertical) ||
-                      (inst.options.dragBlockHorizontal && !isVertical)) {
-                      ev.preventDefault();
-                  }
-                  break;
-
-              case EVENT_RELEASE:
-                  if(triggered && ev.changedLength <= inst.options.dragMaxTouches) {
-                      inst.trigger(name + 'end', ev);
-                      triggered = false;
-                  }
-                  break;
-
-              case EVENT_END:
-                  triggered = false;
-                  break;
-          }
-      }
-
-      Hammer.gestures.Drag = {
-          name: name,
-          index: 50,
-          handler: dragGesture,
-          defaults: {
-              /**
-               * minimal movement that have to be made before the drag event gets triggered
-               * @property dragMinDistance
-               * @type {Number}
-               * @default 10
-               */
-              dragMinDistance: 10,
-
-              /**
-               * Set dragDistanceCorrection to true to make the starting point of the drag
-               * be calculated from where the drag was triggered, not from where the touch started.
-               * Useful to avoid a jerk-starting drag, which can make fine-adjustments
-               * through dragging difficult, and be visually unappealing.
-               * @property dragDistanceCorrection
-               * @type {Boolean}
-               * @default true
-               */
-              dragDistanceCorrection: true,
-
-              /**
-               * set 0 for unlimited, but this can conflict with transform
-               * @property dragMaxTouches
-               * @type {Number}
-               * @default 1
-               */
-              dragMaxTouches: 1,
-
-              /**
-               * prevent default browser behavior when dragging occurs
-               * be careful with it, it makes the element a blocking element
-               * when you are using the drag gesture, it is a good practice to set this true
-               * @property dragBlockHorizontal
-               * @type {Boolean}
-               * @default false
-               */
-              dragBlockHorizontal: false,
-
-              /**
-               * same as `dragBlockHorizontal`, but for vertical movement
-               * @property dragBlockVertical
-               * @type {Boolean}
-               * @default false
-               */
-              dragBlockVertical: false,
-
-              /**
-               * dragLockToAxis keeps the drag gesture on the axis that it started on,
-               * It disallows vertical directions if the initial direction was horizontal, and vice versa.
-               * @property dragLockToAxis
-               * @type {Boolean}
-               * @default false
-               */
-              dragLockToAxis: false,
-
-              /**
-               * drag lock only kicks in when distance > dragLockMinDistance
-               * This way, locking occurs only when the distance has become large enough to reliably determine the direction
-               * @property dragLockMinDistance
-               * @type {Number}
-               * @default 25
-               */
-              dragLockMinDistance: 25
-          }
-      };
-  })('drag');
-
-  /**
-   * @module gestures
-   */
-  /**
-   * trigger a simple gesture event, so you can do anything in your handler.
-   * only usable if you know what your doing...
-   *
-   * @class Gesture
-   * @static
-   */
-  /**
-   * @event gesture
-   * @param {Object} ev
-   */
-  Hammer.gestures.Gesture = {
-      name: 'gesture',
-      index: 1337,
-      handler: function releaseGesture(ev, inst) {
-          inst.trigger(this.name, ev);
-      }
-  };
-
-  /**
-   * @module gestures
-   */
-  /**
-   * Touch stays at the same place for x time
-   *
-   * @class Hold
-   * @static
-   */
-  /**
-   * @event hold
-   * @param {Object} ev
-   */
-
-  /**
-   * @param {String} name
-   */
-  (function(name) {
-      var timer;
-
-      function holdGesture(ev, inst) {
-          var options = inst.options,
-              current = Detection.current;
-
-          switch(ev.eventType) {
-              case EVENT_START:
-                  clearTimeout(timer);
-
-                  // set the gesture so we can check in the timeout if it still is
-                  current.name = name;
-
-                  // set timer and if after the timeout it still is hold,
-                  // we trigger the hold event
-                  timer = setTimeout(function() {
-                      if(current && current.name == name) {
-                          inst.trigger(name, ev);
-                      }
-                  }, options.holdTimeout);
-                  break;
-
-              case EVENT_MOVE:
-                  if(ev.distance > options.holdThreshold) {
-                      clearTimeout(timer);
-                  }
-                  break;
-
-              case EVENT_RELEASE:
-                  clearTimeout(timer);
-                  break;
-          }
-      }
-
-      Hammer.gestures.Hold = {
-          name: name,
-          index: 10,
-          defaults: {
-              /**
-               * @property holdTimeout
-               * @type {Number}
-               * @default 500
-               */
-              holdTimeout: 500,
-
-              /**
-               * movement allowed while holding
-               * @property holdThreshold
-               * @type {Number}
-               * @default 2
-               */
-              holdThreshold: 2
-          },
-          handler: holdGesture
-      };
-  })('hold');
-
-  /**
-   * @module gestures
-   */
-  /**
-   * when a touch is being released from the page
-   *
-   * @class Release
-   * @static
-   */
-  /**
-   * @event release
-   * @param {Object} ev
-   */
-  Hammer.gestures.Release = {
-      name: 'release',
-      index: Infinity,
-      handler: function releaseGesture(ev, inst) {
-          if(ev.eventType == EVENT_RELEASE) {
-              inst.trigger(this.name, ev);
-          }
-      }
-  };
-
-  /**
-   * @module gestures
-   */
-  /**
-   * triggers swipe events when the end velocity is above the threshold
-   * for best usage, set `preventDefault` (on the drag gesture) to `true`
-   * ````
-   *  hammertime.on("dragleft swipeleft", function(ev) {
-   *    console.log(ev);
-   *    ev.gesture.preventDefault();
-   *  });
-   * ````
-   *
-   * @class Swipe
-   * @static
-   */
-  /**
-   * @event swipe
-   * @param {Object} ev
-   */
-  /**
-   * @event swipeleft
-   * @param {Object} ev
-   */
-  /**
-   * @event swiperight
-   * @param {Object} ev
-   */
-  /**
-   * @event swipeup
-   * @param {Object} ev
-   */
-  /**
-   * @event swipedown
-   * @param {Object} ev
-   */
-  Hammer.gestures.Swipe = {
-      name: 'swipe',
-      index: 40,
-      defaults: {
-          /**
-           * @property swipeMinTouches
-           * @type {Number}
-           * @default 1
-           */
-          swipeMinTouches: 1,
-
-          /**
-           * @property swipeMaxTouches
-           * @type {Number}
-           * @default 1
-           */
-          swipeMaxTouches: 1,
-
-          /**
-           * horizontal swipe velocity
-           * @property swipeVelocityX
-           * @type {Number}
-           * @default 0.6
-           */
-          swipeVelocityX: 0.6,
-
-          /**
-           * vertical swipe velocity
-           * @property swipeVelocityY
-           * @type {Number}
-           * @default 0.6
-           */
-          swipeVelocityY: 0.6
-      },
-
-      handler: function swipeGesture(ev, inst) {
-          if(ev.eventType == EVENT_RELEASE) {
-              var touches = ev.touches.length,
-                  options = inst.options;
-
-              // max touches
-              if(touches < options.swipeMinTouches ||
-                  touches > options.swipeMaxTouches) {
-                  return;
-              }
-
-              // when the distance we moved is too small we skip this gesture
-              // or we can be already in dragging
-              if(ev.velocityX > options.swipeVelocityX ||
-                  ev.velocityY > options.swipeVelocityY) {
-                  // trigger swipe events
-                  inst.trigger(this.name, ev);
-                  inst.trigger(this.name + ev.direction, ev);
-              }
-          }
-      }
-  };
-
-  /**
-   * @module gestures
-   */
-  /**
-   * Single tap and a double tap on a place
-   *
-   * @class Tap
-   * @static
-   */
-  /**
-   * @event tap
-   * @param {Object} ev
-   */
-  /**
-   * @event doubletap
-   * @param {Object} ev
-   */
-
-  /**
-   * @param {String} name
-   */
-  (function(name) {
-      var hasMoved = false;
-
-      function tapGesture(ev, inst) {
-          var options = inst.options,
-              current = Detection.current,
-              prev = Detection.previous,
-              sincePrev,
-              didDoubleTap;
-
-          switch(ev.eventType) {
-              case EVENT_START:
-                  hasMoved = false;
-                  break;
-
-              case EVENT_MOVE:
-                  hasMoved = hasMoved || (ev.distance > options.tapMaxDistance);
-                  break;
-
-              case EVENT_END:
-                  if(!Utils.inStr(ev.srcEvent.type, 'cancel') && ev.deltaTime < options.tapMaxTime && !hasMoved) {
-                      // previous gesture, for the double tap since these are two different gesture detections
-                      sincePrev = prev && prev.lastEvent && ev.timeStamp - prev.lastEvent.timeStamp;
-                      didDoubleTap = false;
-
-                      // check if double tap
-                      if(prev && prev.name == name &&
-                          (sincePrev && sincePrev < options.doubleTapInterval) &&
-                          ev.distance < options.doubleTapDistance) {
-                          inst.trigger('doubletap', ev);
-                          didDoubleTap = true;
-                      }
-
-                      // do a single tap
-                      if(!didDoubleTap || options.tapAlways) {
-                          current.name = name;
-                          inst.trigger(current.name, ev);
-                      }
-                  }
-                  break;
-          }
-      }
-
-      Hammer.gestures.Tap = {
-          name: name,
-          index: 100,
-          handler: tapGesture,
-          defaults: {
-              /**
-               * max time of a tap, this is for the slow tappers
-               * @property tapMaxTime
-               * @type {Number}
-               * @default 250
-               */
-              tapMaxTime: 250,
-
-              /**
-               * max distance of movement of a tap, this is for the slow tappers
-               * @property tapMaxDistance
-               * @type {Number}
-               * @default 10
-               */
-              tapMaxDistance: 10,
-
-              /**
-               * always trigger the `tap` event, even while double-tapping
-               * @property tapAlways
-               * @type {Boolean}
-               * @default true
-               */
-              tapAlways: true,
-
-              /**
-               * max distance between two taps
-               * @property doubleTapDistance
-               * @type {Number}
-               * @default 20
-               */
-              doubleTapDistance: 20,
-
-              /**
-               * max time between two taps
-               * @property doubleTapInterval
-               * @type {Number}
-               * @default 300
-               */
-              doubleTapInterval: 300
-          }
-      };
-  })('tap');
-
-  /**
-   * @module gestures
-   */
-  /**
-   * when a touch is being touched at the page
-   *
-   * @class Touch
-   * @static
-   */
-  /**
-   * @event touch
-   * @param {Object} ev
-   */
-  Hammer.gestures.Touch = {
-      name: 'touch',
-      index: -Infinity,
-      defaults: {
-          /**
-           * call preventDefault at touchstart, and makes the element blocking by disabling the scrolling of the page,
-           * but it improves gestures like transforming and dragging.
-           * be careful with using this, it can be very annoying for users to be stuck on the page
-           * @property preventDefault
-           * @type {Boolean}
-           * @default false
-           */
-          preventDefault: false,
-
-          /**
-           * disable mouse events, so only touch (or pen!) input triggers events
-           * @property preventMouse
-           * @type {Boolean}
-           * @default false
-           */
-          preventMouse: false
-      },
-      handler: function touchGesture(ev, inst) {
-          if(inst.options.preventMouse && ev.pointerType == POINTER_MOUSE) {
-              ev.stopDetect();
-              return;
-          }
-
-          if(inst.options.preventDefault) {
-              ev.preventDefault();
-          }
-
-          if(ev.eventType == EVENT_TOUCH) {
-              inst.trigger('touch', ev);
-          }
-      }
-  };
-
-  /**
-   * @module gestures
-   */
-  /**
-   * User want to scale or rotate with 2 fingers
-   * Preventing the default browser behavior is a good way to improve feel and working. This can be done with the
-   * `preventDefault` option.
-   *
-   * @class Transform
-   * @static
-   */
-  /**
-   * @event transform
-   * @param {Object} ev
-   */
-  /**
-   * @event transformstart
-   * @param {Object} ev
-   */
-  /**
-   * @event transformend
-   * @param {Object} ev
-   */
-  /**
-   * @event pinchin
-   * @param {Object} ev
-   */
-  /**
-   * @event pinchout
-   * @param {Object} ev
-   */
-  /**
-   * @event rotate
-   * @param {Object} ev
-   */
-
-  /**
-   * @param {String} name
-   */
-  (function(name) {
-      var triggered = false;
-
-      function transformGesture(ev, inst) {
-          switch(ev.eventType) {
-              case EVENT_START:
-                  triggered = false;
-                  break;
-
-              case EVENT_MOVE:
-                  // at least multitouch
-                  if(ev.touches.length < 2) {
-                      return;
-                  }
-
-                  var scaleThreshold = Math.abs(1 - ev.scale);
-                  var rotationThreshold = Math.abs(ev.rotation);
-
-                  // when the distance we moved is too small we skip this gesture
-                  // or we can be already in dragging
-                  if(scaleThreshold < inst.options.transformMinScale &&
-                      rotationThreshold < inst.options.transformMinRotation) {
-                      return;
-                  }
-
-                  // we are transforming!
-                  Detection.current.name = name;
-
-                  // first time, trigger dragstart event
-                  if(!triggered) {
-                      inst.trigger(name + 'start', ev);
-                      triggered = true;
-                  }
-
-                  inst.trigger(name, ev); // basic transform event
-
-                  // trigger rotate event
-                  if(rotationThreshold > inst.options.transformMinRotation) {
-                      inst.trigger('rotate', ev);
-                  }
-
-                  // trigger pinch event
-                  if(scaleThreshold > inst.options.transformMinScale) {
-                      inst.trigger('pinch', ev);
-                      inst.trigger('pinch' + (ev.scale < 1 ? 'in' : 'out'), ev);
-                  }
-                  break;
-
-              case EVENT_RELEASE:
-                  if(triggered && ev.changedLength < 2) {
-                      inst.trigger(name + 'end', ev);
-                      triggered = false;
-                  }
-                  break;
-          }
-      }
-
-      Hammer.gestures.Transform = {
-          name: name,
-          index: 45,
-          defaults: {
-              /**
-               * minimal scale factor, no scale is 1, zoomin is to 0 and zoomout until higher then 1
-               * @property transformMinScale
-               * @type {Number}
-               * @default 0.01
-               */
-              transformMinScale: 0.01,
-
-              /**
-               * rotation in degrees
-               * @property transformMinRotation
-               * @type {Number}
-               * @default 1
-               */
-              transformMinRotation: 1
-          },
-
-          handler: transformGesture
-      };
-  })('transform');
-
-  /**
-   * @module hammer
-   */
-
-  // AMD export
-  if(true) {
-      !(__WEBPACK_AMD_DEFINE_RESULT__ = function() {
-          return Hammer;
-      }.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
-  // commonjs export
-  } else if(typeof module !== 'undefined' && module.exports) {
-      module.exports = Hammer;
-  // browser export
-  } else {
-      window.Hammer = Hammer;
-  }
-
-  })(window);
-
-/***/ },
 /* 60 */
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
   var RepulsionMixin = __webpack_require__(67);
-  var HierarchialRepulsionMixin = __webpack_require__(69);
-  var BarnesHutMixin = __webpack_require__(68);
+  var HierarchialRepulsionMixin = __webpack_require__(68);
+  var BarnesHutMixin = __webpack_require__(69);
 
   /**
    * Toggling barnes Hut calculation on and off.
@@ -31494,7 +31494,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Node = __webpack_require__(45);
+  var Node = __webpack_require__(40);
 
   /**
    * Creation of the SectorMixin var.
@@ -32052,7 +32052,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 63 */
 /***/ function(module, exports, __webpack_require__) {
 
-  var Node = __webpack_require__(45);
+  var Node = __webpack_require__(40);
 
   /**
    * This function can be called from the _doInAllSectors function
@@ -32767,7 +32767,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Node = __webpack_require__(45);
+  var Node = __webpack_require__(40);
   var Edge = __webpack_require__(37);
 
   /**
@@ -33464,7 +33464,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   var util = __webpack_require__(1);
-  var Hammer = __webpack_require__(44);
+  var Hammer = __webpack_require__(45);
 
   exports._cleanNavigation = function() {
     // clean hammer bindings
@@ -34119,6 +34119,165 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
   /**
+   * Calculate the forces the nodes apply on eachother based on a repulsion field.
+   * This field is linearly approximated.
+   *
+   * @private
+   */
+  exports._calculateNodeForces = function () {
+    var dx, dy, distance, fx, fy,
+      repulsingForce, node1, node2, i, j;
+
+    var nodes = this.calculationNodes;
+    var nodeIndices = this.calculationNodeIndices;
+
+    // repulsing forces between nodes
+    var nodeDistance = this.constants.physics.hierarchicalRepulsion.nodeDistance;
+
+    // we loop from i over all but the last entree in the array
+    // j loops from i+1 to the last. This way we do not double count any of the indices, nor i == j
+    for (i = 0; i < nodeIndices.length - 1; i++) {
+      node1 = nodes[nodeIndices[i]];
+      for (j = i + 1; j < nodeIndices.length; j++) {
+        node2 = nodes[nodeIndices[j]];
+
+        // nodes only affect nodes on their level
+        if (node1.level == node2.level) {
+
+          dx = node2.x - node1.x;
+          dy = node2.y - node1.y;
+          distance = Math.sqrt(dx * dx + dy * dy);
+
+
+          var steepness = 0.05;
+          if (distance < nodeDistance) {
+            repulsingForce = -Math.pow(steepness*distance,2) + Math.pow(steepness*nodeDistance,2);
+          }
+          else {
+            repulsingForce = 0;
+          }
+            // normalize force with
+            if (distance == 0) {
+              distance = 0.01;
+            }
+            else {
+              repulsingForce = repulsingForce / distance;
+            }
+            fx = dx * repulsingForce;
+            fy = dy * repulsingForce;
+
+            node1.fx -= fx;
+            node1.fy -= fy;
+            node2.fx += fx;
+            node2.fy += fy;
+        }
+      }
+    }
+  };
+
+
+  /**
+   * this function calculates the effects of the springs in the case of unsmooth curves.
+   *
+   * @private
+   */
+  exports._calculateHierarchicalSpringForces = function () {
+    var edgeLength, edge, edgeId;
+    var dx, dy, fx, fy, springForce, distance;
+    var edges = this.edges;
+
+    var nodes = this.calculationNodes;
+    var nodeIndices = this.calculationNodeIndices;
+
+
+    for (var i = 0; i < nodeIndices.length; i++) {
+      var node1 = nodes[nodeIndices[i]];
+      node1.springFx = 0;
+      node1.springFy = 0;
+    }
+
+
+    // forces caused by the edges, modelled as springs
+    for (edgeId in edges) {
+      if (edges.hasOwnProperty(edgeId)) {
+        edge = edges[edgeId];
+        if (edge.connected) {
+          // only calculate forces if nodes are in the same sector
+          if (this.nodes.hasOwnProperty(edge.toId) && this.nodes.hasOwnProperty(edge.fromId)) {
+            edgeLength = edge.physics.springLength;
+            // this implies that the edges between big clusters are longer
+            edgeLength += (edge.to.clusterSize + edge.from.clusterSize - 2) * this.constants.clustering.edgeGrowth;
+
+            dx = (edge.from.x - edge.to.x);
+            dy = (edge.from.y - edge.to.y);
+            distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance == 0) {
+              distance = 0.01;
+            }
+
+            // the 1/distance is so the fx and fy can be calculated without sine or cosine.
+            springForce = this.constants.physics.springConstant * (edgeLength - distance) / distance;
+
+            fx = dx * springForce;
+            fy = dy * springForce;
+
+
+
+            if (edge.to.level != edge.from.level) {
+              edge.to.springFx -= fx;
+              edge.to.springFy -= fy;
+              edge.from.springFx += fx;
+              edge.from.springFy += fy;
+            }
+            else {
+              var factor = 0.5;
+              edge.to.fx -= factor*fx;
+              edge.to.fy -= factor*fy;
+              edge.from.fx += factor*fx;
+              edge.from.fy += factor*fy;
+            }
+          }
+        }
+      }
+    }
+
+    // normalize spring forces
+    var springForce = 1;
+    var springFx, springFy;
+    for (i = 0; i < nodeIndices.length; i++) {
+      var node = nodes[nodeIndices[i]];
+      springFx = Math.min(springForce,Math.max(-springForce,node.springFx));
+      springFy = Math.min(springForce,Math.max(-springForce,node.springFy));
+
+      node.fx += springFx;
+      node.fy += springFy;
+    }
+
+    // retain energy balance
+    var totalFx = 0;
+    var totalFy = 0;
+    for (i = 0; i < nodeIndices.length; i++) {
+      var node = nodes[nodeIndices[i]];
+      totalFx += node.fx;
+      totalFy += node.fy;
+    }
+    var correctionFx = totalFx / nodeIndices.length;
+    var correctionFy = totalFy / nodeIndices.length;
+
+    for (i = 0; i < nodeIndices.length; i++) {
+      var node = nodes[nodeIndices[i]];
+      node.fx -= correctionFx;
+      node.fy -= correctionFy;
+    }
+
+  };
+
+/***/ },
+/* 69 */
+/***/ function(module, exports, __webpack_require__) {
+
+  /**
    * This function calculates the forces the nodes apply on eachother based on a gravitational model.
    * The Barnes Hut method is used to speed up this N-body simulation.
    *
@@ -34518,165 +34677,6 @@ return /******/ (function(modules) { // webpackBootstrap
      */
   };
 
-
-/***/ },
-/* 69 */
-/***/ function(module, exports, __webpack_require__) {
-
-  /**
-   * Calculate the forces the nodes apply on eachother based on a repulsion field.
-   * This field is linearly approximated.
-   *
-   * @private
-   */
-  exports._calculateNodeForces = function () {
-    var dx, dy, distance, fx, fy,
-      repulsingForce, node1, node2, i, j;
-
-    var nodes = this.calculationNodes;
-    var nodeIndices = this.calculationNodeIndices;
-
-    // repulsing forces between nodes
-    var nodeDistance = this.constants.physics.hierarchicalRepulsion.nodeDistance;
-
-    // we loop from i over all but the last entree in the array
-    // j loops from i+1 to the last. This way we do not double count any of the indices, nor i == j
-    for (i = 0; i < nodeIndices.length - 1; i++) {
-      node1 = nodes[nodeIndices[i]];
-      for (j = i + 1; j < nodeIndices.length; j++) {
-        node2 = nodes[nodeIndices[j]];
-
-        // nodes only affect nodes on their level
-        if (node1.level == node2.level) {
-
-          dx = node2.x - node1.x;
-          dy = node2.y - node1.y;
-          distance = Math.sqrt(dx * dx + dy * dy);
-
-
-          var steepness = 0.05;
-          if (distance < nodeDistance) {
-            repulsingForce = -Math.pow(steepness*distance,2) + Math.pow(steepness*nodeDistance,2);
-          }
-          else {
-            repulsingForce = 0;
-          }
-            // normalize force with
-            if (distance == 0) {
-              distance = 0.01;
-            }
-            else {
-              repulsingForce = repulsingForce / distance;
-            }
-            fx = dx * repulsingForce;
-            fy = dy * repulsingForce;
-
-            node1.fx -= fx;
-            node1.fy -= fy;
-            node2.fx += fx;
-            node2.fy += fy;
-        }
-      }
-    }
-  };
-
-
-  /**
-   * this function calculates the effects of the springs in the case of unsmooth curves.
-   *
-   * @private
-   */
-  exports._calculateHierarchicalSpringForces = function () {
-    var edgeLength, edge, edgeId;
-    var dx, dy, fx, fy, springForce, distance;
-    var edges = this.edges;
-
-    var nodes = this.calculationNodes;
-    var nodeIndices = this.calculationNodeIndices;
-
-
-    for (var i = 0; i < nodeIndices.length; i++) {
-      var node1 = nodes[nodeIndices[i]];
-      node1.springFx = 0;
-      node1.springFy = 0;
-    }
-
-
-    // forces caused by the edges, modelled as springs
-    for (edgeId in edges) {
-      if (edges.hasOwnProperty(edgeId)) {
-        edge = edges[edgeId];
-        if (edge.connected) {
-          // only calculate forces if nodes are in the same sector
-          if (this.nodes.hasOwnProperty(edge.toId) && this.nodes.hasOwnProperty(edge.fromId)) {
-            edgeLength = edge.physics.springLength;
-            // this implies that the edges between big clusters are longer
-            edgeLength += (edge.to.clusterSize + edge.from.clusterSize - 2) * this.constants.clustering.edgeGrowth;
-
-            dx = (edge.from.x - edge.to.x);
-            dy = (edge.from.y - edge.to.y);
-            distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance == 0) {
-              distance = 0.01;
-            }
-
-            // the 1/distance is so the fx and fy can be calculated without sine or cosine.
-            springForce = this.constants.physics.springConstant * (edgeLength - distance) / distance;
-
-            fx = dx * springForce;
-            fy = dy * springForce;
-
-
-
-            if (edge.to.level != edge.from.level) {
-              edge.to.springFx -= fx;
-              edge.to.springFy -= fy;
-              edge.from.springFx += fx;
-              edge.from.springFy += fy;
-            }
-            else {
-              var factor = 0.5;
-              edge.to.fx -= factor*fx;
-              edge.to.fy -= factor*fy;
-              edge.from.fx += factor*fx;
-              edge.from.fy += factor*fy;
-            }
-          }
-        }
-      }
-    }
-
-    // normalize spring forces
-    var springForce = 1;
-    var springFx, springFy;
-    for (i = 0; i < nodeIndices.length; i++) {
-      var node = nodes[nodeIndices[i]];
-      springFx = Math.min(springForce,Math.max(-springForce,node.springFx));
-      springFy = Math.min(springForce,Math.max(-springForce,node.springFy));
-
-      node.fx += springFx;
-      node.fy += springFy;
-    }
-
-    // retain energy balance
-    var totalFx = 0;
-    var totalFy = 0;
-    for (i = 0; i < nodeIndices.length; i++) {
-      var node = nodes[nodeIndices[i]];
-      totalFx += node.fx;
-      totalFy += node.fy;
-    }
-    var correctionFx = totalFx / nodeIndices.length;
-    var correctionFy = totalFy / nodeIndices.length;
-
-    for (i = 0; i < nodeIndices.length; i++) {
-      var node = nodes[nodeIndices[i]];
-      node.fx -= correctionFx;
-      node.fy -= correctionFy;
-    }
-
-  };
 
 /***/ },
 /* 70 */
