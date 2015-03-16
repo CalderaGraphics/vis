@@ -8851,8 +8851,8 @@ RangeItem.prototype.redraw = function() {
   }
 
   this._repaintDeleteButton(dom.box);
-  this._repaintDragLeft();
-  this._repaintDragRight();
+//  this._repaintDragLeft();
+//  this._repaintDragRight();
 };
 
 /**
